@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Contact } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 
@@ -15,6 +16,7 @@ const ACTIONS = [
 ] as const;
 
 export default function VendorBalancePage() {
+  const router = useRouter();
   const [vendors, setVendors] = useState<VendorLedger[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
@@ -88,7 +90,9 @@ export default function VendorBalancePage() {
     return (
       <div className="card" style={{ maxWidth: 480 }}>
         <p className="badge ok" style={{ marginBottom: 12 }}>Saved</p>
-        <button onClick={() => { setDone(false); setAmount(""); setMovementId(""); setPaymentUse(""); setAppliedAmount(""); setOrderId(""); }}>Do another</button>
+        <p style={{ marginBottom: 16 }}>Vendor balance updated.</p>
+        <button onClick={() => router.push("/ledger")}>View ledger</button>{" "}
+        <button className="secondary" onClick={() => { setDone(false); setAmount(""); setMovementId(""); setPaymentUse(""); setAppliedAmount(""); setOrderId(""); }}>Do another</button>
       </div>
     );
   }
