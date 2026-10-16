@@ -256,3 +256,161 @@ npm run clear:test-activity
 Wipes all orders/movements/applications/transfers so you start the next test run from
 zero. `TEST Vendor 2` stays in Contacts (no delete-contact feature yet) — harmless to
 leave, or remove it manually from the `Contacts` tab in the Sheet.
+
+---
+
+## 16. Full walkthrough — every Record Money + Use Balance case in one run
+
+Covers everything discussed for V1: Company↔Agent, Agent→Vendor in all 3 payment-use
+patterns, a vendor-to-vendor transfer in all 3 patterns, applying a vendor's own held
+balance to a new order, Pay Supplier, and Refund.
+
+**Setup already done for you** (orders + the first funding step), so you can start
+straight on step 1 below:
+
+| Order | Vendor | Due |
+|---|---|---|
+| TEST-GUIDE-O1 | TEST Vendor | RMB 3,000 |
+| TEST-GUIDE-O2 | TEST Vendor | RMB 1,500 |
+| TEST-GUIDE-O3 | TEST Vendor | RMB 1,200 |
+| TEST-GUIDE-O4 | TEST Vendor 2 | RMB 2,000 |
+| TEST-GUIDE-O5 | TEST Vendor 2 | RMB 1,000 |
+
+**Step 0 (already done):** Company → Agent, INR 100,000, so TEST Agent already has
+funding to work with.
+
+### Step 1 — Agent → Vendor, Order + on-account
+
+**Record Money → Flow: Agent → Vendor**
+```
+Payer: TEST Agent
+Payee: TEST Vendor
+Amount: 4000   Currency: RMB
+Vendor payment use: Order + on-account
+  Order: TEST-GUIDE-O1 (due 3000)
+  Applied to this order: 3000
+```
+✅ TEST-GUIDE-O1 due becomes **0**. TEST Vendor now holds **RMB 1,000**.
+
+### Step 2 — Agent → Vendor, Order only
+
+```
+Payer: TEST Agent
+Payee: TEST Vendor
+Amount: 1500   Currency: RMB
+Vendor payment use: Order only
+  Order: TEST-GUIDE-O2 (due 1500)
+```
+✅ TEST-GUIDE-O2 due becomes **0**.
+
+### Step 3 — Agent → Vendor, On-account only
+
+```
+Payer: TEST Agent
+Payee: TEST Vendor
+Amount: 6000   Currency: RMB
+Vendor payment use: On-account only
+```
+✅ TEST Vendor's held balance is now **RMB 7,000** (the 1,000 from step 1 + this 6,000).
+
+### Step 4 — Agent → Company (RMB returned)
+
+```
+Flow: Agent → Company
+Payer: TEST Agent
+Payee: Vinitt Company
+Amount: 2000   Currency: RMB
+```
+✅ Standalone cash event — doesn't touch any vendor or order. Check it on the Ledger
+page under TEST Agent's position.
+
+### Step 5 — Use Balance → Apply to Order
+
+A vendor's own held money paying a *new* order from that same vendor.
+
+**Use Balance**
+```
+Vendor: TEST Vendor
+Held balance to spend: pick either open receipt (1,000 or 6,000)
+Action: Apply to Order
+Order: TEST-GUIDE-O3 (due 1200)
+Amount: 1200
+```
+✅ TEST-GUIDE-O3 due becomes **0**. TEST Vendor's total held drops to **RMB 5,800**.
+
+### Step 6 — Use Balance → Transfer to Vendor, Order only
+
+Vendor A's held money pays straight into Vendor B's order.
+
+```
+Vendor: TEST Vendor
+Held balance to spend: pick a receipt with enough remaining
+Action: Transfer to Vendor
+Transfer to vendor: TEST Vendor 2
+What the receiving vendor does with it: Order only
+Receiving vendor's order: TEST-GUIDE-O4 (due 2000)
+Amount: 2000
+```
+✅ TEST-GUIDE-O4 due becomes **0**. TEST Vendor 2's held balance is still **0** — the
+whole amount went straight to the order, none of it sits as held balance.
+TEST Vendor's held drops to **RMB 3,800**.
+
+### Step 7 — Use Balance → Transfer to Vendor, On-account only
+
+```
+Vendor: TEST Vendor → Transfer to Vendor: TEST Vendor 2
+What the receiving vendor does with it: On-account only
+Amount: 500
+```
+✅ TEST Vendor 2 now holds **RMB 500**. TEST Vendor's held drops to **RMB 3,300**.
+
+### Step 8 — Use Balance → Transfer to Vendor, Order + on-account (the split)
+
+The case that needed a real fix: part of one transfer pays an order, the rest sits
+on the receiving vendor's account — in one action, not two.
+
+```
+Vendor: TEST Vendor → Transfer to Vendor: TEST Vendor 2
+What the receiving vendor does with it: Order + on-account
+Receiving vendor's order: TEST-GUIDE-O5 (due 1000)
+Applied to this order: 1000
+Amount: 1500
+```
+✅ TEST-GUIDE-O5 due becomes **0**. TEST Vendor 2's held balance rises to **RMB
+1,000** (the 500 from step 7 + the 500 on-account portion of this transfer — the
+1,000 order portion correctly does **not** also count as held). TEST Vendor's held
+drops to **RMB 1,800**.
+
+### Step 9 — Use Balance → Pay Supplier
+
+```
+Vendor: TEST Vendor → Action: Pay Supplier
+Pay supplier: TEST Supplier
+Amount: 300
+```
+✅ TEST Vendor's held drops to **RMB 1,500**. No held balance is created for the
+supplier — that money has left the system.
+
+### Step 10 — Use Balance → Refund
+
+```
+Vendor: TEST Vendor → Action: Refund
+Amount: 1500 (whatever's left)
+```
+✅ TEST Vendor's held balance finishes at **RMB 0**.
+
+### Final check — Ledger page
+
+| Who | Should show |
+|---|---|
+| TEST Vendor | RMB 0 held |
+| TEST Vendor 2 | RMB 1,000 held |
+| TEST-GUIDE-O1 through O5 | Due 0 on all five |
+| TEST Agent | Holds INR 100,000, minus whatever RMB equivalent left via step 4 |
+
+If every number above matches, every case discussed — Company↔Agent in either order,
+Agent→Vendor in all 3 patterns, Agent→Company, and vendor-to-vendor transfer in all
+3 patterns including the new split — is confirmed working end to end.
+
+Clean up afterward with `npm run clear:test-activity` (step 15 above) whenever you
+want to run this from zero again.
