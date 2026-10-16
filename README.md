@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AHL Vendor Ledger V1
 
-## Getting Started
+A China/Mexico vendor-payment and order ledger for American Hairline (AHL). Tracks, per currency: what was ordered, who actually paid whom, how much of each payment paid an order, how much money is still held by each vendor, and where it was transferred — without anyone needing to understand "routing" or "allocation."
 
-First, run the development server:
+This is a **new, separate project** — not a rewrite of the old Apps Script ledger. See [`CONTEXT.md`](CONTEXT.md) for the full original planning handoff and [`PRD.md`](PRD.md) for the short flow-based spec.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Stack
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **Next.js** (App Router, TypeScript) — UI + server-only API routes
+- **Google Sheets** as the database, via a service account (server-side only — credentials never reach the browser)
+- No ORM, no extra state library — API routes read/write the Sheet directly through `lib/sheets.ts`, `lib/data.ts`, `lib/ledger.ts`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Core concepts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Money_Movements** — a *fresh* receipt of cash: `CompanyToAgent`, `AgentToCompany`, `AgentToVendor`, or `CompanyToVendor`. Only the vendor-payee types (`AgentToVendor`, `CompanyToVendor`) can be applied to an order or held on-account.
+- **Applications** — spends part of a vendor receipt against one of that vendor's orders.
+- **Transfers** — spends part of a vendor's held balance on something other than its own order: `Transfer` (to another vendor), `PaySupplier` (external, no held balance created), or `Refund`.
+- Every table is **append-only** — nothing is edited in place, so the rows themselves are the audit trail. Corrections are new rows, not overwrites.
+- All balances (order due, vendor held, agent position) are **computed live** from source rows on every read — never cached/stale — see `lib/ledger.ts`.
+- Agent position is tracked **per currency, never netted** — e.g. an agent can simultaneously "hold INR 15,000" and have "company owes RMB 8,000" if funding and spend currencies differ.
 
-## Learn More
+## Local setup
 
-To learn more about Next.js, take a look at the following resources:
+1. **Install deps:**
+   ```bash
+   npm install
+   ```
+2. **Create a Google Sheet** in your own Drive (service accounts have no storage quota to own files directly) and share it as **Editor** with your service account's email.
+3. **Bootstrap the tabs** (adds all 6 tabs + header rows to that Sheet):
+   ```bash
+   npm run setup:sheet -- <SHARED_DRIVE_OR_SHEET_ID>
+   ```
+   This also writes `GOOGLE_SHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, and `GOOGLE_PRIVATE_KEY` into `.env.local`. Put the service account JSON key at `secrets/service-account.json` first (both `.env.local` and `secrets/` are gitignored — never commit them).
+4. **Run it:**
+   ```bash
+   npm run dev       # development
+   npm run build && npm run start   # production (no dev-mode compile lag)
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Seed scripts
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Script | What it does |
+|---|---|
+| `npm run seed:contacts` | Adds the 26 approved vendors, Mr. Lucas Zhang (supplier), and the 3 agents from `THEME_AND_CONTACT_SEED.txt`. |
+| `npm run seed:review-contacts` | Adds the 5 "needs confirmation" contacts (Faye, MS DU, MS Huang, 润驰耐丝, Kevin) — run only after reviewing their roles. |
+| `npm run seed:test-contacts` | Adds `TEST Vendor` / `TEST Agent` / `TEST Supplier` so manual testing never touches real business names. |
+| `npm run clear:test-activity` | Wipes all Orders/Order_Items/Money_Movements/Applications/Transfers (contacts untouched). Use before going live, or to reset after a test session. |
 
-## Deploy on Vercel
+## Screens
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Home** — 4 actions: New Order, Record Money Movement, Use Vendor Balance, View Ledger.
+- **Contacts** — one directory, multi-role (Vendor/Supplier/Agent/Company/Other), create and edit.
+- **Orders** — vendor, invoice ref, multi-line products (description/SKU/qty/unit/unit price), shipping fee, calculated total. Saving an order never records a payment.
+- **Record Money Movement** — pick one of the 4 cash-flow types; for a vendor receipt, choose **Order only / On-account only / Order + on-account** with a live before→after preview. Agent flows capture actual rate, agent's quoted rate, and an optional separate fee.
+- **Use Vendor Balance** — spend an existing held receipt: Apply to Order, Transfer to Vendor, Pay Supplier, or Refund, with a before→change→after preview.
+- **Ledger** — vendor held balances, agent running position (never netted across currency), and order paid/due — every number traces back to its source rows.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Deployment
+
+Pushed to GitHub (`ahl-official/ahl-vendor-ledger`) and deployed on Vercel. When deploying, set these env vars in the Vercel project (same values as local `.env.local`):
+
+- `GOOGLE_SHEET_ID`
+- `GOOGLE_SERVICE_ACCOUNT_EMAIL`
+- `GOOGLE_PRIVATE_KEY` (keep the `\n` literal characters in the string, same format as `.env.local`)
+
+## Explicitly out of scope for V1
+
+- Vendor↔vendor goods/raw-material barter (non-cash settlement)
+- Credit notes / returns
+- Receivables (e.g. Kevin, who owes the company — tagged with contact role "Other" as a directory-only reference for now)
+
+## Still open (needs a decision, not code)
+
+1. **Opening balances** — start every vendor/agent at zero (current state), or migrate signed-off opening balances from the old ledger? Needs real figures per contact/currency; CONTEXT.md recommends never replaying old live payments.
+2. **Review-separately contacts** — confirm roles for Faye, MS DU, MS Huang, 润驰耐丝, Kevin before relying on them in reporting.
+3. Confirm both operating users (Accounts, Purchase) get free create access per CONTEXT.md, with the other just notified.
