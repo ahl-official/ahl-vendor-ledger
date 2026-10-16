@@ -15,9 +15,10 @@ export const SHEETS = {
   Order_Items: [
     "id", "orderId", "description", "sku", "qty", "unit", "unitPrice", "lineTotal", "createdAt",
   ],
-  // A "receipt" movement is CompanyToVendor or AgentToVendor — the only types a vendor
-  // can apply to an order or hold on-account. CompanyToAgent / AgentToCompany are pure
-  // funding events between company and agent and are never applied to an order.
+  // A "receipt" movement is AgentToVendor -- the only type a vendor can apply to an order
+  // or hold on-account. CompanyToAgent / AgentToCompany are pure funding events between
+  // company and agent and are never applied to an order. There is no CompanyToVendor: the
+  // vendor is always paid through the agent (confirmed business rule, 16 Oct 2026).
   Money_Movements: [
     "id", "date", "type", "payerId", "payeeId", "amount", "currency",
     "actualRate", "quotedRate", "agentFee",
@@ -47,7 +48,7 @@ export const ROLES = ["Vendor", "Supplier", "Agent", "Company", "Other"] as cons
 export type Role = (typeof ROLES)[number];
 
 export const MOVEMENT_TYPES = [
-  "CompanyToAgent", "AgentToCompany", "AgentToVendor", "CompanyToVendor",
+  "CompanyToAgent", "AgentToCompany", "AgentToVendor",
 ] as const;
 export type MovementType = (typeof MOVEMENT_TYPES)[number];
 

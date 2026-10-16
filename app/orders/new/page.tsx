@@ -115,7 +115,11 @@ export default function NewOrderPage() {
 
         <div className="card grid" style={{ gridTemplateColumns: "1fr 1fr", maxWidth: 500, marginLeft: "auto" }}>
           <div><label>Shipping fee</label><input type="number" value={shippingFee} onChange={(e) => setShippingFee(e.target.value)} /></div>
-          <div><label>Adjustment (+/-)</label><input type="number" value={adjustment} onChange={(e) => setAdjustment(e.target.value)} /></div>
+          <div>
+            <label>Adjustment (+/-)</label>
+            <input type="number" value={adjustment} onChange={(e) => setAdjustment(e.target.value)} />
+            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>Anything not a line item or shipping — a discount, a bank/rounding fee, a credit. Negative lowers the total, positive raises it.</p>
+          </div>
           <div style={{ gridColumn: "1 / -1", textAlign: "right", fontSize: 16, paddingTop: 8 }}>
             <strong>Order total: {currency} {orderTotal.toFixed(2)}</strong>
           </div>

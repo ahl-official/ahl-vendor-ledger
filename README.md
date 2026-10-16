@@ -12,7 +12,7 @@ This is a **new, separate project** — not a rewrite of the old Apps Script led
 
 ## Core concepts
 
-- **Money_Movements** — a *fresh* receipt of cash: `CompanyToAgent`, `AgentToCompany`, `AgentToVendor`, or `CompanyToVendor`. Only the vendor-payee types (`AgentToVendor`, `CompanyToVendor`) can be applied to an order or held on-account.
+- **Money_Movements** — a *fresh* receipt of cash: `CompanyToAgent`, `AgentToCompany`, or `AgentToVendor`. The vendor is always paid through the agent, so only `AgentToVendor` can be applied to an order or held on-account.
 - **Applications** — spends part of a vendor receipt against one of that vendor's orders.
 - **Transfers** — spends part of a vendor's held balance on something other than its own order: `Transfer` (to another vendor), `PaySupplier` (external, no held balance created), or `Refund`.
 - Every table is **append-only** — nothing is edited in place, so the rows themselves are the audit trail. Corrections are new rows, not overwrites.

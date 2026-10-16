@@ -18,7 +18,7 @@ export const POST = withErrors(async (req: Request) => {
   if (!body.payerId || !body.payeeId) return NextResponse.json({ error: "Payer and payee are required" }, { status: 400 });
   if (!amount || amount <= 0) return NextResponse.json({ error: "Amount must be greater than 0" }, { status: 400 });
 
-  const isVendorReceipt = type === "CompanyToVendor" || type === "AgentToVendor";
+  const isVendorReceipt = type === "AgentToVendor";
   const paymentUse = (isVendorReceipt ? (body.paymentUse as PaymentUse) : "") || "";
   if (isVendorReceipt && !paymentUse) {
     return NextResponse.json({ error: "Choose Order only / On-account only / Order + on-account" }, { status: 400 });

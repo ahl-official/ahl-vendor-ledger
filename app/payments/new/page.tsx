@@ -4,11 +4,13 @@ import { useRouter } from "next/navigation";
 import type { Contact, MovementType, PaymentUse } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 
+// The vendor is always paid through the agent -- there is no direct Company → Vendor path
+// (confirmed business rule, 16 Oct 2026). Company → Agent and Agent → Vendor can be recorded
+// in either order: the agent sometimes pays the vendor first and the company reimburses after.
 const TYPE_OPTIONS: { value: MovementType; label: string; payerRole: string; payeeRole: string }[] = [
   { value: "CompanyToAgent", label: "Company → Agent  (INR funding sent)", payerRole: "Company", payeeRole: "Agent" },
   { value: "AgentToCompany", label: "Agent → Company  (RMB returned)", payerRole: "Agent", payeeRole: "Company" },
   { value: "AgentToVendor", label: "Agent → Vendor  (agent pays vendor)", payerRole: "Agent", payeeRole: "Vendor" },
-  { value: "CompanyToVendor", label: "Company → Vendor  (direct payment)", payerRole: "Company", payeeRole: "Vendor" },
 ];
 
 type OrderRow = { id: string; vendorId: string; invoiceRef: string; currency: string; due: number };
@@ -17,7 +19,7 @@ export default function RecordMovementPage() {
   const router = useRouter();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
-  const [type, setType] = useState<MovementType>("CompanyToVendor");
+  const [type, setType] = useState<MovementType>("CompanyToAgent");
   const [payerId, setPayerId] = useState("");
   const [payeeId, setPayeeId] = useState("");
   const [amount, setAmount] = useState("");
@@ -43,7 +45,7 @@ export default function RecordMovementPage() {
   }, []);
 
   const cfg = TYPE_OPTIONS.find((t) => t.value === type)!;
-  const isVendorReceipt = type === "AgentToVendor" || type === "CompanyToVendor";
+  const isVendorReceipt = type === "AgentToVendor";
   const byRole = (role: string) => contacts.filter((c) => c.roles.includes(role as any));
   const vendorOrders = useMemo(
     () => orders.filter((o) => o.vendorId === payeeId && o.currency === currency && o.due > 0.01),

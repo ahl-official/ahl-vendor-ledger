@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Contact, Role } from "@/lib/schema";
 import { ROLES } from "@/lib/schema";
 import { Loading } from "@/app/components/Loading";
@@ -15,6 +15,7 @@ export default function ContactsPage() {
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const load = () =>
     fetch("/api/contacts")
@@ -43,8 +44,14 @@ export default function ContactsPage() {
     setEditingId(c.id);
     setName(c.name); setRoles(c.roles); setContact(c.contact); setNotes(c.notes);
     setError("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  // Scroll after the edit form has actually re-rendered, not before -- scrolling inside
+  // startEdit() could fire while the page still showed "Add contact", landing short of
+  // where the (now-taller, now-populated) edit form ended up.
+  useEffect(() => {
+    if (editingId) formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [editingId]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,7 +75,7 @@ export default function ContactsPage() {
     <div>
       <h1 style={{ marginBottom: 24 }}>Contacts</h1>
 
-      <form onSubmit={submit} className="card" style={{ marginBottom: 24, display: "grid", gap: 12 }}>
+      <form ref={formRef} onSubmit={submit} className="card" style={{ marginBottom: 24, display: "grid", gap: 12 }}>
         <h2>{editingId ? "Edit contact" : "Add contact"}</h2>
         <div>
           <label>Name</label>

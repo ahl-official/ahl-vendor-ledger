@@ -31,9 +31,10 @@ export function orderSummary(order: Order, d: LedgerData) {
   return { total, paid, due: Math.max(0, total - paid) };
 }
 
-/** A "receipt" is a vendor-payee movement: CompanyToVendor or AgentToVendor. Only these can be applied/held. */
+/** A "receipt" is a vendor-payee movement. The vendor is always paid through the agent, so this is
+ *  just AgentToVendor -- there is no direct CompanyToVendor path. */
 export function isReceipt(m: MoneyMovement): boolean {
-  return !m.reversed && (m.type === "CompanyToVendor" || m.type === "AgentToVendor");
+  return !m.reversed && m.type === "AgentToVendor";
 }
 
 /** How much of a receipt's amount is still unapplied / untransferred — what "Use Vendor Balance" can spend. */
