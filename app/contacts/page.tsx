@@ -7,6 +7,7 @@ import { Loading } from "@/app/components/Loading";
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [roles, setRoles] = useState<Role[]>([]);
   const [contact, setContact] = useState("");
@@ -33,12 +34,24 @@ export default function ContactsPage() {
   const toggleRole = (r: Role) =>
     setRoles((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]));
 
+  const resetForm = () => {
+    setEditingId(null);
+    setName(""); setRoles([]); setContact(""); setNotes(""); setError("");
+  };
+
+  const startEdit = (c: Contact) => {
+    setEditingId(c.id);
+    setName(c.name); setRoles(c.roles); setContact(c.contact); setNotes(c.notes);
+    setError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setSaving(true);
-    const res = await fetch("/api/contacts", {
-      method: "POST",
+    const res = await fetch(editingId ? `/api/contacts/${editingId}` : "/api/contacts", {
+      method: editingId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, roles, contact, notes }),
     });
@@ -47,7 +60,7 @@ export default function ContactsPage() {
       setError((await res.json()).error ?? "Failed to save");
       return;
     }
-    setName(""); setRoles([]); setContact(""); setNotes("");
+    resetForm();
     load();
   };
 
@@ -56,7 +69,7 @@ export default function ContactsPage() {
       <h1 style={{ marginBottom: 24 }}>Contacts</h1>
 
       <form onSubmit={submit} className="card" style={{ marginBottom: 24, display: "grid", gap: 12 }}>
-        <h2>Add contact</h2>
+        <h2>{editingId ? "Edit contact" : "Add contact"}</h2>
         <div>
           <label>Name</label>
           <input value={name} onChange={(e) => setName(e.target.value)} required />
@@ -81,7 +94,14 @@ export default function ContactsPage() {
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
         </div>
         {error && <p className="error-text">{error}</p>}
-        <button type="submit" disabled={saving}>{saving ? "Saving..." : "Add contact"}</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="submit" disabled={saving}>
+            {saving ? "Saving..." : editingId ? "Save changes" : "Add contact"}
+          </button>
+          {editingId && (
+            <button type="button" className="secondary" onClick={resetForm}>Cancel</button>
+          )}
+        </div>
       </form>
 
       {loading ? (
@@ -91,7 +111,7 @@ export default function ContactsPage() {
       ) : (
         <table>
           <thead>
-            <tr><th>Name</th><th>Roles</th><th>Contact</th><th>Notes</th></tr>
+            <tr><th>Name</th><th>Roles</th><th>Contact</th><th>Notes</th><th></th></tr>
           </thead>
           <tbody>
             {contacts.map((c) => (
@@ -100,6 +120,7 @@ export default function ContactsPage() {
                 <td>{c.roles.join(", ")}</td>
                 <td>{c.contact || "—"}</td>
                 <td className="muted">{c.notes || "—"}</td>
+                <td><button type="button" className="secondary" onClick={() => startEdit(c)}>Edit</button></td>
               </tr>
             ))}
           </tbody>
