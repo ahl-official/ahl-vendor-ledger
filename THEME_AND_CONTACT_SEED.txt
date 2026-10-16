@@ -1,0 +1,276 @@
+AHL VENDOR LEDGER V1 — THEME AND CONTACT NAMES
+Planning handoff only | 15 October 2026
+
+READ WITH: CONTEXT.md in this same folder.
+Build the NEW project from scratch. Do not modify or deploy the old app.
+
+============================================================
+1. OLD APPLICATION THEME — KEEP THIS COLOR COMBINATION
+============================================================
+
+Background / paper:       #f6f5f1  warm off-white
+Card background:          #ffffff  white
+Main text / black border: #1c1c1a  soft near-black
+Muted text:               #6b6b63
+Thin divider:             #ccc9bd
+Active tab / accent:      #8a5a1f  warm brown/amber
+Soft note background:     #eeece3
+Error / danger text:      #a32020
+
+Status surfaces already used by the old app:
+Information blue:         #eef5fb  border #9fc5e8
+Completed / healthy green: #e7f4e4  border #93c47d
+Held / pending amber:     #fff4cc  border #d6b656
+Error / overdue red:      #fde8e8  border #cc7b7b
+
+Typography: IBM Plex Mono, with Courier New/monospace fallback.
+Visual character: clean white cards on warm paper, crisp black card
+borders, simple grids, small uppercase field labels, amber active tabs.
+Use status WORDS alongside colors so a user can understand without
+relying on color alone. Keep the old look; simplify the navigation.
+
+============================================================
+2. CONTACT NAMES FROM THE OLD MASTER DATABASE
+============================================================
+
+REGULAR VENDORS — prefill as active after deduplication/review (26)
+Nancy (Lord Hair)
+Harry
+Mao Nini (Sally Pu / Saili)
+Starrose
+TR (T.R.)
+Linda
+Drew Silli (Dhruv / Sillee)
+Zyron
+Chau (Yan)
+Sritan
+Jifa
+Accessories2
+Rachel Runiyasi
+Sunny
+Jenny Tenlon
+Anne
+FSM
+Vlight
+Hi-MO
+Ya Xuan
+Huang (uniforms)
+Atop (scissors)
+Yanny (pedicure)
+Bao Cheng (trolley/dryers/mirrors/TV)
+Ling Ling (bedsheets)
+Emida
+
+OTHER NAMES IN THE OLD VENDORS TAB — do not automatically classify
+Vinitt Company                 [Company, not a vendor]
+Kevin                          [Receivable / owes company]
+Faye                           [Vendor / payment coordinator; review role]
+MS DU                          [Needs confirmation]
+MS Huang                       [Needs confirmation]
+润驰耐丝                        [Needs confirmation]
+
+TEST VENDOR NAMES IN THE OLD VENDORS TAB — DO NOT PREFILL
+E2E-TEST-20260922 Sunny Supplies
+E2E-TEST-20260922 Sunny Supplies2
+E2E-TEST-20260922 Sunny Supplies22
+
+EXTERNAL SUPPLIER — prefill as Supplier
+Mr. Lucas Zhang
+
+AGENTS — prefill as Agent
+HARNI
+RAKESH
+AMIT
+
+Important identity rule: one person may have more than one role.
+Mao Nini is also marked as a payment agent in the old Vendors tab;
+confirm that role before activating it. Never create duplicate contacts
+just because one name is both a vendor and an agent.
+
+Source of this snapshot: old China & Mexico Vendor Payment Ledger,
+https://docs.google.com/spreadsheets/d/12Z4mYdEaRqmPsz413IAW_twCs1OPWIMEXNNrI6f95O8/edit
+The old Supplier List has Mr. Lucas Zhang at row 1001, not near the
+header. A migration must scan the real used range, not just top rows.
+
+============================================================
+3. VENDOR DIRECTORY DETAILS (LIVE SOURCE SNAPSHOT)
+============================================================
+
+Source tab: Vendors, columns A:G, read 15 October 2026.
+Fields below are exactly the stored ID, name, role, contact and notes.
+All entries are marked Active=TRUE in the old tab. The regular vendor
+region is "China & Mexico"; Faye and the three unconfirmed entries have
+"China / Mexico"; the test entries have "China". A dash means the field
+is empty in the source, NOT that the contact does not exist.
+
+REGULAR VENDORS
+
+ENT-002 | Nancy (Lord Hair)
+Contact: Faye (new contact)
+Notes: Leaving; Faye handles small payments/account going forward. Planned RMB 1,000/month coordinating offer after 15 Sept is not yet communicated.
+
+ENT-003 | Harry
+Contact: WeChat only
+Notes: Largest lace/accessories/manufacturing-material supplier. WeChat only; wife/assistant handles chat; responses can be slow.
+
+ENT-004 | Mao Nini (Sally Pu / Saili)
+Contact: — not recorded
+Notes: PU bases and memory hair specialist; direct manufacturer; typical delivery 30–40 days; also forwards payments to other vendors.
+Old role: Vendor / Money Holder / Payment Agent
+
+ENT-005 | Starrose
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-006 | TR (T.R.)
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-007 | Linda
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-008 | Drew Silli (Dhruv / Sillee)
+Contact: — not recorded
+Notes: Swiss lace and super-fine lace; exact company/name and incomplete source notes require confirmation.
+
+ENT-009 | Zyron
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-010 | Chau (Yan)
+Contact: via Gauri (India contact)
+Notes: Via Gauri in India; raw-hair pricing follow-up. RMB 820 payment identity requires confirmation.
+
+ENT-011 | Sritan
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-012 | Jifa
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-013 | Accessories2
+Contact: — not recorded
+Notes: Name retained from source list
+
+ENT-014 | Rachel Runiyasi
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-015 | Sunny
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-016 | Jenny Tenlon
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-017 | Anne
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-018 | FSM
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-019 | Vlight
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-020 | Hi-MO
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-021 | Ya Xuan
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-022 | Huang (uniforms)
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-023 | Atop (scissors)
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-024 | Yanny (pedicure)
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-025 | Bao Cheng (trolley/dryers/mirrors/TV)
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-026 | Ling Ling (bedsheets)
+Contact: — not recorded
+Notes: — not recorded
+
+ENT-027 | Emida
+Contact: — not recorded
+Notes: Added from approved example
+
+OTHER RECORDS IN THE VENDORS TAB — REVIEW BEFORE CLASSIFYING
+
+ENT-001 | Vinitt Company
+Role: Company (not a vendor) | Contact: — not recorded
+Notes: Primary company entity
+
+ENT-028 | Kevin
+Role: Receivable (owes company) | Contact: — not recorded
+Notes: Opposite direction: Kevin owes Vinitt. Exact balance and Vishal's shoes order are still unknown.
+
+ENT-20260904145033-958929 | Faye
+Role: Vendor / Payment Coordinator | Contact: 8615763948517
+Notes: Taking over Nancy's account for small payments; not yet confirmed as a full standing vendor.
+
+ENT-SIR-MS-DU | MS DU
+Role: Needs Confirmation | Contact: — not recorded
+Notes: Appears in Sally ledger at RMB 3,400; may duplicate Harry. Do not post a second payment until confirmed.
+
+ENT-SIR-MS-HUANG | MS Huang
+Role: Needs Confirmation | Contact: — not recorded
+Notes: May be Huang (uniforms) or Chau (Yan). Identity must be confirmed before merging.
+
+ENT-SIR-RUNCHI | 润驰耐丝
+Role: Needs Confirmation | Contact: — not recorded
+Notes: Appears in Sally ledger with RMB 8,000 paid on 2026-09-02; goods/order details unknown.
+
+TEST RECORDS — NEVER SEED THESE AS PRODUCTION CONTACTS
+
+VEN-20260922142229-2DE9B1 | E2E-TEST-20260922 Sunny Supplies
+Contact: E2E Test Contact +86 1000000000
+Notes: E2E-TEST-20260922 — test vendor only; cancel after QA
+
+VEN-20260922142414-5F5B2F | E2E-TEST-20260922 Sunny Supplies2
+Contact: E2E Test Contact +86 1000000000
+Notes: E2E-TEST-20260922 — test vendor only; cancel after QA
+
+VEN-20260922151706-8E20B5 | E2E-TEST-20260922 Sunny Supplies22
+Contact: ca
+Notes: c
+
+SEPARATE SUPPLIER LIST (row 1001)
+SUP-20261002164720-DD8D18 | Mr. Lucas Zhang
+Contact: 15913330010
+Notes: Alibaba supplier for lamps .
+Active: TRUE
+
+SEPARATE AGENTS TAB
+AGT-20261012124742-C35227 | HARNI | Active TRUE
+Contact: — no contact column in old Agents tab
+Notes: BIG AMOUNT ALL CURRENCY
+
+AGT-20261012124823-698DDC | RAKESH | Active TRUE
+Contact: — no contact column in old Agents tab
+Notes: BIG AMOUNT IN RMB
+
+AGT-20261012124940-EC5211 | AMIT | Active TRUE
+Contact: — no contact column in old Agents tab
+Notes: SMALL AMOUNT IN RMB TO PAY ONLY AMY/HN
+
+Migration rule: these are directory details, not proof of balances or
+transactions. Preserve old IDs as source references if importing, but
+generate new IDs in the new system. Do not copy payments, orders or
+balances automatically. The owner must confirm opening balances and the
+agent cash path before coding the ledger.
