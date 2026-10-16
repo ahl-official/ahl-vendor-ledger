@@ -29,6 +29,7 @@ export default function RecordMovementPage() {
   const [quotedRate, setQuotedRate] = useState("");
   const [agentFee, setAgentFee] = useState("");
   const [method, setMethod] = useState("");
+  const [methodChoice, setMethodChoice] = useState("");
   const [reference, setReference] = useState("");
   const [note, setNote] = useState("");
   const [paymentUse, setPaymentUse] = useState<PaymentUse | "">("");
@@ -130,8 +131,9 @@ export default function RecordMovementPage() {
             <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
               <div><label>Actual / reference rate</label><input type="number" value={actualRate} onChange={(e) => setActualRate(e.target.value)} placeholder="e.g. 15" /></div>
               <div><label>Agent's quoted rate</label><input type="number" value={quotedRate} onChange={(e) => setQuotedRate(e.target.value)} placeholder="e.g. 14.5" /></div>
-              <div><label>Extra fee (if actually charged)</label><input type="number" value={agentFee} onChange={(e) => setAgentFee(e.target.value)} /></div>
+              <div><label>Extra fee</label><input type="number" value={agentFee} onChange={(e) => setAgentFee(e.target.value)} /></div>
             </div>
+            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>Extra fee is only if the agent actually charged one.</p>
           </div>
         )}
 
@@ -184,7 +186,18 @@ export default function RecordMovementPage() {
         )}
 
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div><label>Method</label><input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="bank / cash / wechat" /></div>
+          <div>
+            <label>Method</label>
+            <select value={methodChoice} onChange={(e) => { const v = e.target.value; setMethodChoice(v); setMethod(v === "Other" ? "" : v); }}>
+              <option value="">Select...</option>
+              <option value="Cash">Cash</option>
+              <option value="Bank">Bank</option>
+              <option value="Other">Other</option>
+            </select>
+            {methodChoice === "Other" && (
+              <input style={{ marginTop: 8 }} value={method} onChange={(e) => setMethod(e.target.value)} placeholder="Type the method" required />
+            )}
+          </div>
           <div><label>Reference</label><input value={reference} onChange={(e) => setReference(e.target.value)} /></div>
         </div>
         <div><label>Note / proof link</label><input value={note} onChange={(e) => setNote(e.target.value)} /></div>
