@@ -14,7 +14,7 @@
   --err-bg: #fde8e8;  --err-border: #cc7b7b;
 }
 
-html, body {
+html {
   max-width: 100vw;
   overflow-x: hidden;
 }
