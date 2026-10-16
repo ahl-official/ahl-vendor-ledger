@@ -24,6 +24,10 @@ export default function VendorBalancePage() {
   const [amount, setAmount] = useState("");
   const [orderId, setOrderId] = useState("");
   const [toContactId, setToContactId] = useState("");
+  // Only meaningful for a vendor-to-vendor Transfer: same three patterns as a vendor receipt --
+  // all to one order, all left on the receiving vendor's account, or a split of both.
+  const [paymentUse, setPaymentUse] = useState<"OrderOnly" | "OnAccountOnly" | "OrderPlusOnAccount" | "">("");
+  const [appliedAmount, setAppliedAmount] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -45,6 +49,9 @@ export default function VendorBalancePage() {
     () => orders.filter((o) => o.vendorId === (action === "apply" ? vendorId : toContactId) && o.currency === receipt?.currency && o.due > 0.01),
     [orders, vendorId, toContactId, action, receipt]
   );
+  const isTransferSplit = action === "Transfer" && toContactId;
+  // Order-only applies the whole amount, same shortcut the Record Money page uses.
+  const effectiveApplied = paymentUse === "OrderOnly" ? amount : appliedAmount;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +59,7 @@ export default function VendorBalancePage() {
     const amt = Number(amount);
     if (!receipt) return setError("Choose a held balance to spend");
     if (!amt || amt <= 0) return setError("Amount must be greater than 0");
+    if (isTransferSplit && !paymentUse) return setError("Choose Order only / On-account only / Order + on-account");
     setSaving(true);
     const res = action === "apply"
       ? await fetch("/api/applications", {
@@ -63,7 +71,11 @@ export default function VendorBalancePage() {
           body: JSON.stringify({
             sourceMovementId: movementId, fromVendorId: vendorId, purpose: action,
             toContactId: action === "Refund" ? "" : toContactId,
-            amount: amt, currency: receipt.currency, receivingOrderId: orderId, note,
+            amount: amt, currency: receipt.currency,
+            paymentUse: isTransferSplit ? paymentUse : undefined,
+            receivingOrderId: isTransferSplit ? (paymentUse === "OnAccountOnly" ? "" : orderId) : orderId,
+            appliedAmount: isTransferSplit ? Number(effectiveApplied || 0) : undefined,
+            note,
           }),
         });
     setSaving(false);
@@ -76,7 +88,7 @@ export default function VendorBalancePage() {
     return (
       <div className="card" style={{ maxWidth: 480 }}>
         <p className="badge ok" style={{ marginBottom: 12 }}>Saved</p>
-        <button onClick={() => { setDone(false); setAmount(""); setMovementId(""); }}>Do another</button>
+        <button onClick={() => { setDone(false); setAmount(""); setMovementId(""); setPaymentUse(""); setAppliedAmount(""); setOrderId(""); }}>Do another</button>
       </div>
     );
   }
@@ -112,7 +124,7 @@ export default function VendorBalancePage() {
 
         <div>
           <label>Action</label>
-          <select value={action} onChange={(e) => { setAction(e.target.value as any); setOrderId(""); setToContactId(""); }}>
+          <select value={action} onChange={(e) => { setAction(e.target.value as any); setOrderId(""); setToContactId(""); setPaymentUse(""); setAppliedAmount(""); }}>
             {ACTIONS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
           </select>
         </div>
@@ -127,11 +139,11 @@ export default function VendorBalancePage() {
           </div>
         )}
 
-        {(action === "apply" || (action === "Transfer" && toContactId)) && (
+        {action === "apply" && (
           <div>
-            <label>{action === "apply" ? "Order" : "Receiving vendor's order (optional)"}</label>
-            <select value={orderId} onChange={(e) => setOrderId(e.target.value)} required={action === "apply"}>
-              <option value="">{action === "apply" ? "Select..." : "No order — just add to held balance"}</option>
+            <label>Order</label>
+            <select value={orderId} onChange={(e) => setOrderId(e.target.value)} required>
+              <option value="">Select...</option>
               {targetOrders.map((o) => <option key={o.id} value={o.id}>{o.invoiceRef || o.id} — due {o.due.toFixed(2)}</option>)}
             </select>
           </div>
@@ -141,6 +153,46 @@ export default function VendorBalancePage() {
           <label>Amount {receipt && `(max ${receipt.currency} ${receipt.remaining.toFixed(2)})`}</label>
           <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} required />
         </div>
+
+        {isTransferSplit && (
+          <div className="card" style={{ background: "var(--soft)" }}>
+            <p className="field-label">What the receiving vendor does with it</p>
+            <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
+              {(["OrderOnly", "OnAccountOnly", "OrderPlusOnAccount"] as const).map((u) => (
+                <label key={u} style={{ display: "flex", alignItems: "center", gap: 4, textTransform: "none", fontSize: 14 }}>
+                  <input type="radio" name="transferUse" style={{ width: "auto" }} checked={paymentUse === u} onChange={() => setPaymentUse(u)} />
+                  {u === "OrderOnly" ? "Order only" : u === "OnAccountOnly" ? "On-account only" : "Order + on-account"}
+                </label>
+              ))}
+            </div>
+
+            {(paymentUse === "OrderOnly" || paymentUse === "OrderPlusOnAccount") && (
+              <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                <div>
+                  <label>Receiving vendor&apos;s order</label>
+                  <select value={orderId} onChange={(e) => {
+                    setOrderId(e.target.value);
+                    const o = targetOrders.find((x) => x.id === e.target.value);
+                    if (paymentUse === "OrderOnly" && o) setAppliedAmount(String(Math.min(o.due, Number(amount) || o.due)));
+                  }} required>
+                    <option value="">Select...</option>
+                    {targetOrders.map((o) => <option key={o.id} value={o.id}>{o.invoiceRef || o.id} — due {o.due.toFixed(2)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label>Applied to this order</label>
+                  <input type="number" value={effectiveApplied} onChange={(e) => setAppliedAmount(e.target.value)} disabled={paymentUse === "OrderOnly"} required />
+                </div>
+              </div>
+            )}
+
+            <p className="muted" style={{ marginTop: 8, fontSize: 13 }}>
+              {paymentUse === "OrderOnly" && `All of it pays the order.`}
+              {paymentUse === "OnAccountOnly" && `All of it is held on the receiving vendor's account.`}
+              {paymentUse === "OrderPlusOnAccount" && `${(Number(appliedAmount) || 0).toFixed(2)} pays the order, ${((Number(amount) || 0) - (Number(appliedAmount) || 0)).toFixed(2)} is held on account.`}
+            </p>
+          </div>
+        )}
 
         {receipt && amount && (
           <p className="muted" style={{ fontSize: 13 }}>

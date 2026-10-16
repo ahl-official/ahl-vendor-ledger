@@ -64,9 +64,12 @@ export function vendorHeld(vendorId: string, currency: string, d: LedgerData): n
     .reduce((s, m) => s + m.amount, 0);
   // Only purpose "Transfer" (vendor-to-vendor) is a real incoming balance for the recipient.
   // A refund's toContactId is just where the money went, not a vendor gaining held funds —
-  // counting it here would cancel out its own transfersOut below.
+  // counting it here would cancel out its own transfersOut below. A transfer sent straight to
+  // one of the recipient's orders (receivingOrderId set) was spent on arrival -- orderPaid()
+  // already counts it there, so it must NOT also inflate held balance here, or that amount
+  // would be counted as both "paid" and "still available" at once.
   const transfersIn = d.transfers
-    .filter((t) => t.purpose === "Transfer" && t.toContactId === vendorId && !t.reversed && t.currency === currency)
+    .filter((t) => t.purpose === "Transfer" && t.toContactId === vendorId && !t.reversed && t.currency === currency && !t.receivingOrderId)
     .reduce((s, t) => s + t.amount, 0);
   const appliedOut = d.applications
     .filter((a) => a.active)
