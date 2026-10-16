@@ -8,6 +8,7 @@ export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [name, setName] = useState("");
   const [roles, setRoles] = useState<Role[]>([]);
   const [contact, setContact] = useState("");
@@ -116,12 +117,24 @@ export default function ContactsPage() {
       ) : loadError ? (
         <p className="error-text">{loadError}</p>
       ) : (
+        <>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name or role..."
+          style={{ marginBottom: 12, maxWidth: 320 }}
+        />
         <table>
           <thead>
             <tr><th>Name</th><th>Roles</th><th>Contact</th><th>Notes</th><th></th></tr>
           </thead>
           <tbody>
-            {contacts.map((c) => (
+            {contacts
+              .filter((c) => {
+                const q = search.trim().toLowerCase();
+                return !q || c.name.toLowerCase().includes(q) || c.roles.some((r) => r.toLowerCase().includes(q));
+              })
+              .map((c) => (
               <tr key={c.id}>
                 <td>{c.name}</td>
                 <td>{c.roles.join(", ")}</td>
@@ -132,6 +145,7 @@ export default function ContactsPage() {
             ))}
           </tbody>
         </table>
+        </>
       )}
     </div>
   );

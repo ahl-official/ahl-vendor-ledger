@@ -7,7 +7,7 @@ import { Loading } from "@/app/components/Loading";
 
 type VendorLedger = Contact & { held: Record<string, number> };
 type AgentLedger = Contact & { position: Record<string, number> };
-type OrderRow = { id: string; invoiceRef: string; currency: string; total: number; paid: number; due: number };
+type OrderRow = { id: string; vendorId: string; invoiceRef: string; date: string; currency: string; total: number; paid: number; due: number };
 
 export default function LedgerPage() {
   const [vendors, setVendors] = useState<VendorLedger[]>([]);
@@ -76,10 +76,12 @@ export default function LedgerPage() {
 
       <h2 style={{ marginBottom: 12 }}>Orders</h2>
       <table>
-        <thead><tr><th>Invoice</th><th>Total</th><th>Paid</th><th>Due</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Vendor</th><th>Invoice</th><th>Total</th><th>Paid</th><th>Due</th><th></th></tr></thead>
         <tbody>
           {orders.map((o) => (
             <tr key={o.id}>
+              <td>{o.date}</td>
+              <td>{vendors.find((v) => v.id === o.vendorId)?.name ?? o.vendorId}</td>
               <td>{o.invoiceRef || o.id}</td>
               <td>{o.currency} {o.total.toFixed(2)}</td>
               <td>{o.currency} {o.paid.toFixed(2)}</td>
