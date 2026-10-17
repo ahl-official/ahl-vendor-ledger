@@ -12,52 +12,65 @@ The current app has no direct Company→Vendor payment — money to a vendor alw
 through an agent. So "send money to TEST Vendor via TEST Agent, on-account" is two
 real cash events: the company funds the agent, then the agent pays the vendor.
 
-### Step 1 — Company funds the agent
+### Step 1 — Company funds the agent, in INR
 
 **Record Money**
 ```
 Flow: Company → Agent (INR funding sent)
 Payer: Vinitt Company
 Payee: TEST Agent
-Amount: 5000
-Currency: RMB
-Actual / reference rate: (leave blank — same currency, no FX here)
-Agent's quoted rate: (leave blank)
+Amount: 75000
+Currency: INR
+Actual / reference rate: 15
+Agent's quoted rate: 15.5
 Method: Bank
 ```
 Save.
 
-✅ **Ledger** → TEST Agent shows **Holds RMB 5000.00**.
+✅ **Ledger** → TEST Agent shows **Holds INR 75000.00**.
 
-### Step 2 — Agent pays the vendor, on-account (no order)
+### Step 2 — Agent converts and pays the vendor, in RMB, on-account
 
-**Record Money**
+The agent now actually hands over RMB to the vendor. Enter the **real RMB amount the
+agent actually paid out** — not something the app calculates from the rate above.
 ```
 Flow: Agent → Vendor (agent pays vendor)
 Payer: TEST Agent
 Payee: TEST Vendor
-Amount: 5000
+Amount: 4800
 Currency: RMB
 Vendor payment use: On-account only
 Method: Bank
 ```
 Save.
 
-✅ **Ledger** → TEST Vendor shows **RMB 5000.00** held (nothing applied to any order —
-"on-account" means it just sits with the vendor until you choose to use it later via
-Use Balance).
-✅ **Ledger** → TEST Agent goes back to **Settled** (funded 5000, paid out 5000, net 0).
+✅ **Ledger** → TEST Vendor shows **RMB 4800.00** held.
+✅ **Ledger** → TEST Agent now shows **two separate lines**: `Holds INR 75000.00` *and*
+`Company owes RMB 4800.00`.
 
-### Why this is correct
+### Why TEST Agent shows two lines, not one settled number — read this if it looks wrong
 
-- The vendor never has an order yet, so there was nothing to apply the payment to —
-  that's exactly what "on-account" is for.
-- If the agent had paid the vendor *before* being funded, TEST Agent would instead show
-  "Company owes RMB 5000.00" — the app never assumes funding happened, only real
-  entered movements count.
-- TEST Vendor's RMB 5000 is not gone — it's reusable later: open **Use Balance**, pick
-  TEST Vendor, pick this held receipt, and you can Apply it to a future order, Transfer
-  it to another vendor, Pay a supplier with it, or Refund it.
+This is the exact point you flagged. The app records the INR funding and the RMB
+payout as two **separate, independent events** — it never calculates one from the
+other, and it never nets INR against RMB. So after both steps:
+
+- The **INR 75,000** funding is still sitting there, untouched on paper, because
+  nothing in the system ever told it "this INR became that RMB."
+- The **RMB 4,800** payout shows as "company owes" because, in isolation, the agent
+  spent RMB it was never directly funded in.
+
+In reality these two numbers *are* connected (the INR funded the RMB payout), but V1
+has no explicit "FX conversion" event linking a funding to a payout — CONTEXT.md's
+rule is *"INR and RMB balances are never netted without an explicit FX deal,"* and V1
+never built that explicit FX deal step. The `actualRate` / `quotedRate` fields you
+entered in Step 1 are stored for audit (so you can see the spread later) but nothing
+reads them to auto-settle the INR side.
+
+**This is a real gap worth a decision, not a bug to silently "fix":** do you want V1
+to keep showing both currencies separately like this (safest — never assumes a
+conversion that wasn't explicitly confirmed), or should there be a way to mark "this
+INR funding was converted and spent via that RMB payout" so the agent's position
+nets to settled once both legs are recorded? Tell me which and I'll build it.
 
 ---
 
