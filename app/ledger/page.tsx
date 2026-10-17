@@ -318,21 +318,24 @@ export default function LedgerPage() {
             {roleFilter === "Agent" && (
               <>
                 <p className="field-label">Running position</p>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  {events.length > 0 && events[0].balanceRmb != null && (
-                    <span className={`badge ${events[0].balanceRmb >= 0 ? "ok" : "err"}`} style={{ fontWeight: 600 }}>
-                      {events[0].balanceRmb >= 0
-                        ? `Net Balance: RMB ${events[0].balanceRmb.toFixed(2)}`
-                        : `Company owes: RMB ${Math.abs(events[0].balanceRmb).toFixed(2)}`}
-                    </span>
+                <div>
+                  {events.length > 0 && events[0].balanceRmb != null ? (
+                    events[0].balanceRmb > 0.001 ? (
+                      <span className="badge hold" style={{ fontWeight: 600, fontSize: 13, padding: "6px 12px" }}>
+                        Agent holds: RMB {events[0].balanceRmb.toFixed(2)}
+                      </span>
+                    ) : events[0].balanceRmb < -0.001 ? (
+                      <span className="badge err" style={{ fontWeight: 600, fontSize: 13, padding: "6px 12px" }}>
+                        Company owes: RMB {Math.abs(events[0].balanceRmb).toFixed(2)}
+                      </span>
+                    ) : (
+                      <span className="badge ok" style={{ fontWeight: 600, fontSize: 13, padding: "6px 12px" }}>
+                        Settled (RMB 0.00)
+                      </span>
+                    )
+                  ) : (
+                    <span className="muted">No transactions</span>
                   )}
-                  {agentPos && Object.entries(agentPos).filter(([, amt]) => Math.abs(amt) > 0.01).length
-                    ? Object.entries(agentPos).filter(([, amt]) => Math.abs(amt) > 0.01).map(([c, amt]) => (
-                        <span key={c} className={`badge ${amt >= 0 ? "info" : "err"}`}>
-                          {amt >= 0 ? `Holds ${c} ${amt.toFixed(2)}` : `Company owes ${c} ${Math.abs(amt).toFixed(2)}`}
-                        </span>
-                      ))
-                    : null}
                 </div>
               </>
             )}
@@ -398,15 +401,19 @@ export default function LedgerPage() {
                     </td>
                     <td className="muted">{e.rate != null ? e.rate.toFixed(2) : "—"}</td>
                     <td className={e.inrAmount == null ? "muted" : e.inrAmount >= 0 ? "" : "error-text"}>
-                      {e.inrAmount != null ? `${e.inrAmount >= 0 ? "+" : ""}₹${e.inrAmount.toFixed(2)}` : "—"}
+                      {e.inrAmount != null
+                        ? `${e.inrAmount < 0 ? "-" : "+"}₹${Math.abs(e.inrAmount).toFixed(2)}`
+                        : "—"}
                     </td>
                     <td className={e.rmbAmount == null ? "muted" : e.rmbAmount >= 0 ? "" : "error-text"}>
-                      {e.rmbAmount != null ? `${e.rmbAmount >= 0 ? "+" : ""}¥${e.rmbAmount.toFixed(2)}` : "—"}
+                      {e.rmbAmount != null
+                        ? `${e.rmbAmount < 0 ? "-" : "+"}¥${Math.abs(e.rmbAmount).toFixed(2)}`
+                        : "—"}
                     </td>
                     <td>
                       {e.balanceRmb != null ? (
-                        <span className={`badge ${e.balanceRmb >= 0 ? "ok" : "err"}`} style={{ textDecoration: "none" }}>
-                          ¥{e.balanceRmb.toFixed(2)}
+                        <span className={`badge ${e.balanceRmb > 0.001 ? "hold" : e.balanceRmb < -0.001 ? "err" : "ok"}`} style={{ textDecoration: "none" }}>
+                          {e.balanceRmb < 0 ? "-" : ""}¥{Math.abs(e.balanceRmb).toFixed(2)}
                         </span>
                       ) : "—"}
                     </td>
@@ -459,23 +466,21 @@ export default function LedgerPage() {
           </div>
 
           <h2 style={{ marginBottom: 12 }}>Agents — running position</h2>
-          <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>Positive = agent still holds company funding. Negative = company owes the agent.</p>
+          <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>Current status reflecting the latest transaction.</p>
           <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: 32 }}>
             {agents.map((a) => {
-              const pos = Object.entries(a.position).filter(([, amt]) => Math.abs(amt) > 0.01);
               const rmbBal = agentRmbBalance(a.id);
               return (
                 <div key={a.id} className="card">
                   <strong>{a.name}</strong>
                   <div style={{ marginTop: 8 }}>
-                    <div className={`badge ${rmbBal >= 0 ? "ok" : "err"}`} style={{ marginRight: 6, marginBottom: 4 }}>
-                      {rmbBal >= 0 ? `Holds RMB ${rmbBal.toFixed(2)}` : `Company owes RMB ${Math.abs(rmbBal).toFixed(2)}`}
+                    <div className={`badge ${rmbBal > 0.001 ? "hold" : rmbBal < -0.001 ? "err" : "ok"}`}>
+                      {rmbBal > 0.001
+                        ? `Agent holds: RMB ${rmbBal.toFixed(2)}`
+                        : rmbBal < -0.001
+                        ? `Company owes: RMB ${Math.abs(rmbBal).toFixed(2)}`
+                        : "Settled (RMB 0.00)"}
                     </div>
-                    {pos.length ? (
-                      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-                        {pos.map(([c, amt]) => (amt >= 0 ? `+${c} ${amt.toFixed(2)}` : `${c} ${amt.toFixed(2)}`)).join(" · ")}
-                      </div>
-                    ) : null}
                   </div>
                 </div>
               );
