@@ -29,6 +29,9 @@ type Event = {
   inrAmount?: number | null;
   rmbAmount?: number | null;
   balanceRmb?: number | null;
+  credited?: number | null;
+  debited?: number | null;
+  runningBalance?: number | null;
 };
 
 export default function LedgerPage() {
@@ -126,23 +129,28 @@ export default function LedgerPage() {
             currency: m.currency,
             note: m.note,
             editHref: `/payments/new?editId=${m.id}`,
+            credited: m.amount,
+            debited: null,
           });
         });
       transfers
         .filter((t) => !t.reversed && t.purpose === "Transfer" && t.toContactId === selectedId)
-        .forEach((t) =>
+        .forEach((t) => {
+          const order = t.receivingOrderId ? orders.find((o) => o.id === t.receivingOrderId) : undefined;
           out.push({
             id: t.id,
             kind: "transfer",
             date: t.createdAt.slice(0, 10),
             createdAt: t.createdAt,
-            label: `Received transfer from ${nameOf(t.fromVendorId)}${t.receivingOrderId ? " (paid an order)" : " (on account)"}`,
-            amount: t.amount,
+            label: `Received transfer from ${nameOf(t.fromVendorId)}${t.receivingOrderId ? ` (paid order ${order?.invoiceRef || t.receivingOrderId})` : " (on account)"}`,
+            amount: t.receivingOrderId ? 0 : t.amount,
             currency: t.currency,
             note: t.note,
             editHref: `/vendor-balance?editId=${t.id}`,
-          })
-        );
+            credited: t.amount,
+            debited: t.receivingOrderId ? t.amount : null,
+          });
+        });
       transfers
         .filter((t) => !t.reversed && t.fromVendorId === selectedId)
         .forEach((t) => {
@@ -164,12 +172,16 @@ export default function LedgerPage() {
             currency: t.currency,
             note: t.note,
             editHref: `/vendor-balance?editId=${t.id}`,
+            credited: null,
+            debited: t.amount,
           });
         });
       applications
         .filter((a) => a.active && movements.some((m) => !m.reversed && m.id === a.movementId && m.payeeId === selectedId))
         .forEach((a) => {
           const order = orders.find((o) => o.id === a.orderId);
+          const movement = movements.find((m) => m.id === a.movementId);
+          const curr = order?.currency || movement?.currency || "RMB";
           out.push({
             id: a.id,
             kind: "application",
@@ -177,11 +189,27 @@ export default function LedgerPage() {
             createdAt: a.createdAt,
             label: `Applied to order ${order?.invoiceRef || a.orderId}`,
             amount: -a.amount,
-            currency: order?.currency ?? "",
+            currency: curr,
             note: "",
             editHref: `/vendor-balance?editId=${a.id}&kind=application`,
+            credited: null,
+            debited: a.amount,
           });
         });
+
+      // 1. Calculate running balance chronologically (oldest to newest by creation timestamp)
+      out.sort((a, b) => {
+        const timeDiff = a.createdAt.localeCompare(b.createdAt);
+        if (timeDiff !== 0) return timeDiff;
+        if (a.kind === "movement" && b.kind !== "movement") return -1;
+        if (b.kind === "movement" && a.kind !== "movement") return 1;
+        return 0;
+      });
+      const runningBalances: Record<string, number> = {};
+      for (const e of out) {
+        runningBalances[e.currency] = (runningBalances[e.currency] ?? 0) + e.amount;
+        e.runningBalance = runningBalances[e.currency];
+      }
     } else if (roleFilter === "Agent") {
       movements
         .filter((m) => !m.reversed && m.type === "CompanyToAgent" && m.payeeId === selectedId)
@@ -528,6 +556,99 @@ export default function LedgerPage() {
                           {e.balanceRmb < 0 ? "-" : ""}¥{Math.abs(e.balanceRmb).toFixed(2)}
                         </span>
                       ) : "—"}
+                    </td>
+                    <td className="muted">{e.note || "—"}</td>
+                    <td style={{ textAlign: "right" }}>
+                      <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                        {e.editHref && (
+                          <Link
+                            href={e.editHref}
+                            className="icon-btn edit-btn"
+                            title="Edit transaction"
+                            aria-label="Edit transaction"
+                          >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                          </Link>
+                        )}
+                        {e.id && (
+                          <button
+                            type="button"
+                            className="icon-btn delete-btn"
+                            title="Delete transaction"
+                            aria-label="Delete transaction"
+                            disabled={deletingId === e.id}
+                            onClick={() => handleDeleteTransaction(e)}
+                          >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <line x1="10" y1="11" x2="10" y2="17" />
+                              <line x1="14" y1="11" x2="14" y2="17" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : roleFilter === "Vendor" ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>What</th>
+                  <th>Credited</th>
+                  <th>Debited</th>
+                  <th>Total Balance</th>
+                  <th>Note</th>
+                  <th style={{ textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((e, i) => (
+                  <tr key={i}>
+                    <td>{e.date}</td>
+                    <td>{e.label}</td>
+                    <td>
+                      {e.credited != null && e.credited > 0 ? (
+                        <span style={{ color: "#166534", fontWeight: 600 }}>
+                          +{e.currency} {e.credited.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td>
+                      {e.debited != null && e.debited > 0 ? (
+                        <span className="error-text" style={{ fontWeight: 600 }}>
+                          -{e.currency} {e.debited.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td>
+                      {e.runningBalance != null ? (
+                        <span
+                          className={`badge ${
+                            e.runningBalance > 0.001
+                              ? "hold"
+                              : e.runningBalance < -0.001
+                              ? "err"
+                              : "ok"
+                          }`}
+                          style={{ fontWeight: 600 }}
+                        >
+                          {e.currency} {e.runningBalance.toFixed(2)}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="muted">{e.note || "—"}</td>
                     <td style={{ textAlign: "right" }}>
