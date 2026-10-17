@@ -555,8 +555,9 @@ export default function LedgerPage() {
                   <th>Date</th>
                   <th>What</th>
                   <th>Rate</th>
-                  <th>Amount (INR)</th>
-                  <th>Amount (RMB)</th>
+                  <th>INR</th>
+                  <th>Credited (RMB)</th>
+                  <th>Debited (RMB)</th>
                   <th>Balance (RMB)</th>
                   <th>Note</th>
                   <th style={{ textAlign: "right" }}>Actions</th>
@@ -573,10 +574,11 @@ export default function LedgerPage() {
                         ? `${e.inrAmount < 0 ? "-" : "+"}₹${Math.abs(e.inrAmount).toFixed(2)}`
                         : "—"}
                     </td>
-                    <td className={e.rmbAmount == null ? "muted" : e.rmbAmount >= 0 ? "" : "error-text"}>
-                      {e.rmbAmount != null
-                        ? `${e.rmbAmount < 0 ? "-" : "+"}¥${Math.abs(e.rmbAmount).toFixed(2)}`
-                        : "—"}
+                    <td className={e.rmbAmount != null && e.rmbAmount > 0 ? "" : "muted"}>
+                      {e.rmbAmount != null && e.rmbAmount > 0 ? `+¥${e.rmbAmount.toFixed(2)}` : e.rmbAmount == null ? "no rate" : "—"}
+                    </td>
+                    <td className={e.rmbAmount != null && e.rmbAmount < 0 ? "error-text" : "muted"}>
+                      {e.rmbAmount != null && e.rmbAmount < 0 ? `-¥${Math.abs(e.rmbAmount).toFixed(2)}` : "—"}
                     </td>
                     <td>
                       {e.balanceRmb != null ? (
