@@ -46,6 +46,12 @@ export const SHEETS = {
     "fromCurrency", "fromAmount", "toCurrency", "toAmount",
     "note", "reversed", "reversedReason", "createdAt",
   ],
+  // Credit note / return issued by a vendor for an unsatisfactory or returned order.
+  // Credits the amount back to the vendor's held balance for future use, and reduces order net cost.
+  Credit_Notes: [
+    "id", "orderId", "vendorId", "date", "amount", "currency",
+    "reason", "reversed", "reversedReason", "createdAt",
+  ],
   // Remembers every free-typed "Other" value for Reference/Method so it becomes a normal
   // dropdown option from then on, for everyone -- never typed twice. See lib/options.ts.
   Custom_Options: ["id", "field", "value", "createdAt"],
@@ -111,6 +117,11 @@ export interface FxConversion {
   id: string; agentId: string; fundingMovementId: string; spendMovementId: string;
   fromCurrency: string; fromAmount: number; toCurrency: string; toAmount: number;
   note: string; reversed: boolean; reversedReason: string; createdAt: string;
+}
+
+export interface CreditNote {
+  id: string; orderId: string; vendorId: string; date: string; amount: number; currency: string;
+  reason: string; reversed: boolean; reversedReason: string; createdAt: string;
 }
 
 export const OPTION_FIELDS = ["reference", "method"] as const;

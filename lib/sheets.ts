@@ -30,24 +30,70 @@ export async function readRows(tab: SheetName): Promise<Record<string, string>[]
   return rows;
 }
 
+export async function ensureTab(tab: SheetName) {
+  const sheets = await client();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId() });
+  const sheetObj = meta.data.sheets?.find((s) => s.properties?.title === tab);
+  if (!sheetObj) {
+    const headers = SHEETS[tab] as readonly string[];
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: sheetId(),
+      requestBody: {
+        requests: [
+          { addSheet: { properties: { title: tab } } },
+        ],
+      },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId(),
+      range: `${tab}!A1:${colLetter(headers.length)}1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [headers as unknown as string[]] },
+    });
+  }
+}
+
 /** Reads several tabs in ONE Sheets API call (values.batchGet) instead of one call per tab —
  *  Sheets API has a per-minute read-request quota, and a page that needs 4-6 tabs was burning
  *  4-6 requests every time it loaded. Returns rows in the same order as `tabs`. */
 export async function readRowsBatch(tabs: SheetName[]): Promise<Record<string, string>[][]> {
   const sheets = await client();
-  const res = await sheets.spreadsheets.values.batchGet({
-    spreadsheetId: sheetId(),
-    ranges: tabs.map((tab) => `${tab}!A2:${colLetter((SHEETS[tab] as readonly string[]).length)}`),
-  });
-  return tabs.map((tab, i) => {
-    const headers = SHEETS[tab] as readonly string[];
-    const rows = res.data.valueRanges?.[i]?.values ?? [];
-    return rows.map((row) => {
-      const obj: Record<string, string> = {};
-      headers.forEach((h, j) => (obj[h] = row[j] ?? ""));
-      return obj;
+  try {
+    const res = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: sheetId(),
+      ranges: tabs.map((tab) => `${tab}!A2:${colLetter((SHEETS[tab] as readonly string[]).length)}`),
     });
-  });
+    return tabs.map((tab, i) => {
+      const headers = SHEETS[tab] as readonly string[];
+      const rows = res.data.valueRanges?.[i]?.values ?? [];
+      return rows.map((row) => {
+        const obj: Record<string, string> = {};
+        headers.forEach((h, j) => (obj[h] = row[j] ?? ""));
+        return obj;
+      });
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Unable to parse range")) {
+      for (const tab of tabs) {
+        await ensureTab(tab);
+      }
+      const res = await sheets.spreadsheets.values.batchGet({
+        spreadsheetId: sheetId(),
+        ranges: tabs.map((tab) => `${tab}!A2:${colLetter((SHEETS[tab] as readonly string[]).length)}`),
+      });
+      return tabs.map((tab, i) => {
+        const headers = SHEETS[tab] as readonly string[];
+        const rows = res.data.valueRanges?.[i]?.values ?? [];
+        return rows.map((row) => {
+          const obj: Record<string, string> = {};
+          headers.forEach((h, j) => (obj[h] = row[j] ?? ""));
+          return obj;
+        });
+      });
+    }
+    throw err;
+  }
 }
 
 /** Appends one row. `fields` may omit trailing columns. */
@@ -55,12 +101,27 @@ export async function appendRow(tab: SheetName, fields: Record<string, string | 
   const sheets = await client();
   const headers = SHEETS[tab] as readonly string[];
   const row = headers.map((h) => serialize(fields[h]));
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: sheetId(),
-    range: `${tab}!A1`,
-    valueInputOption: "RAW",
-    requestBody: { values: [row] },
-  });
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId(),
+      range: `${tab}!A1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [row] },
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Unable to parse range")) {
+      await ensureTab(tab);
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId(),
+        range: `${tab}!A1`,
+        valueInputOption: "RAW",
+        requestBody: { values: [row] },
+      });
+      return;
+    }
+    throw err;
+  }
 }
 
 /** Patches specific columns on the row whose `id` column matches `id`. */

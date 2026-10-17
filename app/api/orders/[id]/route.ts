@@ -30,12 +30,29 @@ export const GET = withErrors(async (_req: Request, { params }: { params: Promis
       };
     });
 
+  const creditNotes = (d.creditNotes ?? [])
+    .filter((c) => c.orderId === id && !c.reversed)
+    .map((c) => ({
+      id: c.id,
+      date: c.date,
+      amount: c.amount,
+      currency: c.currency,
+      reason: c.reason,
+      createdAt: c.createdAt,
+    }));
+
+  const summary = orderSummary(order, d);
   return NextResponse.json({
     ...order,
     vendorName: vendor?.name ?? order.vendorId,
     items,
     appliedPayments,
-    ...orderSummary(order, d),
+    creditNotes,
+    creditNotesTotal: summary.creditNotes,
+    total: summary.total,
+    paid: summary.paid,
+    netCost: summary.netCost,
+    due: summary.due,
   });
 });
 
@@ -114,8 +131,18 @@ export const DELETE = withErrors(async (_req: Request, { params }: { params: Pro
     );
   }
 
+  const activeCreditNotes = (d.creditNotes ?? []).filter((c) => c.orderId === id && !c.reversed);
+  if (activeCreditNotes.length > 0) {
+    const cnTotal = activeCreditNotes.reduce((s, c) => s + c.amount, 0);
+    return NextResponse.json(
+      { error: `Cannot delete order ${order.invoiceRef || order.id} because it has ${activeCreditNotes.length} active credit note(s) totaling ${order.currency} ${cnTotal.toFixed(2)}. Delete credit notes first.` },
+      { status: 400 }
+    );
+  }
+
   await deleteRowsByField("Orders", "id", id);
   await deleteRowsByField("Order_Items", "orderId", id);
+  await deleteRowsByField("Credit_Notes", "orderId", id);
 
   return NextResponse.json({ success: true, id });
 });

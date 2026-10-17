@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { Contact, FxConversion, MoneyMovement, Application, Transfer, Role } from "@/lib/schema";
+import type { Contact, CreditNote, FxConversion, MoneyMovement, Application, Transfer, Role } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 import { Loading } from "@/app/components/Loading";
 
@@ -11,13 +11,14 @@ type OrderRow = { id: string; vendorId: string; invoiceRef: string; date: string
 type LedgerResponse = {
   vendors: VendorLedger[]; agents: AgentLedger[]; orders: OrderRow[];
   movements: MoneyMovement[]; applications: Application[]; transfers: Transfer[]; fxConversions: FxConversion[];
+  creditNotes?: CreditNote[];
 };
 
 const LOOKUP_ROLES: Role[] = ["Vendor", "Agent", "Company"];
 
 type Event = {
   id: string;
-  kind: "movement" | "transfer" | "application";
+  kind: "movement" | "transfer" | "application" | "credit_note";
   date: string;
   createdAt: string;
   label: string;
@@ -43,6 +44,7 @@ export default function LedgerPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [fxConversions, setFxConversions] = useState<FxConversion[]>([]);
+  const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
   const [loadError, setLoadError] = useState("");
   const [actionError, setActionError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -64,6 +66,7 @@ export default function LedgerPage() {
         setApplications(d.applications);
         setTransfers(d.transfers);
         setFxConversions(d.fxConversions);
+        setCreditNotes(d.creditNotes ?? []);
         setContacts(c);
       })
       .catch((e) => setLoadError(e.message))
@@ -194,6 +197,24 @@ export default function LedgerPage() {
             editHref: `/vendor-balance?editId=${a.id}&kind=application`,
             credited: null,
             debited: a.amount,
+          });
+        });
+      creditNotes
+        .filter((cn) => !cn.reversed && cn.vendorId === selectedId)
+        .forEach((cn) => {
+          const order = orders.find((o) => o.id === cn.orderId);
+          out.push({
+            id: cn.id,
+            kind: "credit_note",
+            date: cn.date,
+            createdAt: cn.createdAt,
+            label: `Credit Note — Order ${order?.invoiceRef || cn.orderId}${cn.reason ? ` (${cn.reason})` : ""}`,
+            amount: cn.amount,
+            currency: cn.currency,
+            note: cn.reason,
+            editHref: `/orders/${cn.orderId}`,
+            credited: cn.amount,
+            debited: null,
           });
         });
 
@@ -361,7 +382,7 @@ export default function LedgerPage() {
 
     // 2. Display latest transaction on top (like a bank passbook)
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [selectedId, roleFilter, movements, transfers, applications, fxConversions, orders, contacts]);
+  }, [selectedId, roleFilter, movements, transfers, applications, fxConversions, creditNotes, orders, contacts]);
 
   const vendorOrders = roleFilter === "Vendor" ? orders.filter((o) => o.vendorId === selectedId) : [];
   const vendorHeld = roleFilter === "Vendor" ? vendors.find((v) => v.id === selectedId)?.held : undefined;
@@ -386,6 +407,8 @@ export default function LedgerPage() {
           ? `/api/movements/${e.id}`
           : e.kind === "transfer"
           ? `/api/transfers/${e.id}`
+          : e.kind === "credit_note"
+          ? `/api/credit-notes/${e.id}`
           : `/api/applications/${e.id}`;
       const res = await fetch(endpoint, { method: "DELETE" });
       const data = await res.json();

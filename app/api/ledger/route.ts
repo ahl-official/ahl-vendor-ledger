@@ -23,5 +23,5 @@ export const GET = withErrors(async () => {
 
   const orderCards = orders.map((o) => ({ ...o, ...orderSummary(o, d) }));
 
-  return NextResponse.json({ vendors, agents, orders: orderCards, movements, applications, transfers, fxConversions });
+  return NextResponse.json({ vendors, agents, orders: orderCards, movements, applications, transfers, fxConversions, creditNotes: d.creditNotes ?? [] });
 });

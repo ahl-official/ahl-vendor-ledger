@@ -1,4 +1,4 @@
-import type { Application, Contact, FxConversion, MoneyMovement, Order, OrderItem, Transfer } from "./schema";
+import type { Application, Contact, CreditNote, FxConversion, MoneyMovement, Order, OrderItem, Transfer } from "./schema";
 
 export interface LedgerData {
   contacts: Contact[];
@@ -8,6 +8,7 @@ export interface LedgerData {
   applications: Application[];
   transfers: Transfer[];
   fxConversions: FxConversion[];
+  creditNotes?: CreditNote[];
 }
 
 export function orderTotal(order: Order, items: OrderItem[]): number {
@@ -29,7 +30,17 @@ export function orderPaid(orderId: string, applications: Application[], transfer
 export function orderSummary(order: Order, d: LedgerData) {
   const total = orderTotal(order, d.orderItems);
   const paid = orderPaid(order.id, d.applications, d.transfers);
-  return { total, paid, due: Math.max(0, total - paid) };
+  const creditNotes = (d.creditNotes ?? [])
+    .filter((c) => c.orderId === order.id && !c.reversed)
+    .reduce((s, c) => s + c.amount, 0);
+  const netCost = Math.max(0, total - creditNotes);
+  return {
+    total,
+    paid,
+    creditNotes,
+    netCost,
+    due: Math.max(0, total - creditNotes - paid),
+  };
 }
 
 /** A "receipt" is a vendor-payee movement. The vendor is always paid through the agent, so this is
@@ -72,6 +83,9 @@ export function vendorHeld(vendorId: string, currency: string, d: LedgerData): n
   const transfersIn = d.transfers
     .filter((t) => t.purpose === "Transfer" && t.toContactId === vendorId && !t.reversed && t.currency === currency && !t.receivingOrderId)
     .reduce((s, t) => s + t.amount, 0);
+  const creditNotesIn = (d.creditNotes ?? [])
+    .filter((c) => c.vendorId === vendorId && !c.reversed && c.currency === currency)
+    .reduce((s, c) => s + c.amount, 0);
   const appliedOut = d.applications
     .filter((a) => a.active)
     .filter((a) => d.movements.some((m) => m.id === a.movementId && m.payeeId === vendorId && m.currency === currency))
@@ -79,7 +93,7 @@ export function vendorHeld(vendorId: string, currency: string, d: LedgerData): n
   const transfersOut = d.transfers
     .filter((t) => t.fromVendorId === vendorId && !t.reversed && t.currency === currency)
     .reduce((s, t) => s + t.amount, 0);
-  return receivedIn + transfersIn - appliedOut - transfersOut;
+  return receivedIn + transfersIn + creditNotesIn - appliedOut - transfersOut;
 }
 
 /** How much of a CompanyToAgent funding movement is still unlinked to any FX conversion. */

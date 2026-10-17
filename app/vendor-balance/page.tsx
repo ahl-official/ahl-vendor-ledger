@@ -12,7 +12,6 @@ const ACTIONS = [
   { value: "apply", label: "Apply to Order" },
   { value: "Transfer", label: "Transfer to Vendor" },
   { value: "PaySupplier", label: "Pay Supplier" },
-  { value: "Refund", label: "Refund" },
 ] as const;
 
 export default function VendorBalancePage() {
@@ -75,7 +74,7 @@ function VendorBalanceContent() {
           setOriginalEditVendorId(t.fromVendorId);
           setCurrency(t.currency);
           setOriginalEditCurrency(t.currency);
-          setAction(t.purpose);
+          setAction(t.purpose === "PaySupplier" ? "PaySupplier" : "Transfer");
           setToContactId(t.toContactId);
           setAmount(String(t.amount));
           setOriginalEditAmount(t.amount);
@@ -137,8 +136,6 @@ function VendorBalanceContent() {
       ? contacts.filter((c) => c.roles.includes("Vendor") && c.id !== vendorId)
       : action === "PaySupplier"
       ? contacts.filter((c) => c.roles.includes("Supplier"))
-      : action === "Refund"
-      ? contacts.filter((c) => c.roles.includes("Company"))
       : [];
 
   const targetOrders = useMemo(
@@ -328,14 +325,10 @@ function VendorBalanceContent() {
           </select>
         </div>
 
-        {(action === "Transfer" || action === "PaySupplier" || action === "Refund") && (
+        {(action === "Transfer" || action === "PaySupplier") && (
           <div>
             <label>
-              {action === "Transfer"
-                ? "Receiving vendor"
-                : action === "PaySupplier"
-                ? "Supplier"
-                : "Company to refund"}
+              {action === "Transfer" ? "Receiving vendor" : "Supplier"}
             </label>
             <select
               value={toContactId}

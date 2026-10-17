@@ -6,7 +6,13 @@ import type { Contact, Order } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 import { Loading } from "@/app/components/Loading";
 
-type OrderRow = Order & { total: number; paid: number; due: number };
+type OrderRow = Order & {
+  total: number;
+  paid: number;
+  due: number;
+  creditNotes?: number;
+  netCost?: number;
+};
 
 export default function OrdersPage() {
   const router = useRouter();
@@ -97,7 +103,14 @@ export default function OrdersPage() {
                 <td>{o.date}</td>
                 <td>{vendorName(o.vendorId)}</td>
                 <td>{o.invoiceRef || "—"}</td>
-                <td>{o.currency} {o.total.toFixed(2)}</td>
+                <td>
+                  <div>{o.currency} {o.total.toFixed(2)}</div>
+                  {o.creditNotes && o.creditNotes > 0 ? (
+                    <div style={{ fontSize: 11, color: "#059669", fontWeight: 500 }}>
+                      Net: {o.currency} {(o.netCost ?? (o.total - o.creditNotes)).toFixed(2)}
+                    </div>
+                  ) : null}
+                </td>
                 <td>{o.currency} {o.paid.toFixed(2)}</td>
                 <td>
                   <span className={`badge ${o.due <= 0 ? "ok" : "hold"}`}>{o.currency} {o.due.toFixed(2)}</span>
@@ -125,9 +138,15 @@ export default function OrdersPage() {
                     <button
                       type="button"
                       className="icon-btn delete-btn"
-                      title="Delete order"
+                      title={
+                        o.paid > 0
+                          ? "Cannot delete order with applied payments"
+                          : (o.creditNotes ?? 0) > 0
+                          ? "Cannot delete order with active credit notes"
+                          : "Delete order"
+                      }
                       aria-label={`Delete order ${o.invoiceRef || o.id}`}
-                      disabled={deletingId === o.id}
+                      disabled={deletingId === o.id || o.paid > 0 || (o.creditNotes ?? 0) > 0}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDelete(o);
