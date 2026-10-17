@@ -1,7 +1,5 @@
-// Voids an "apply held balance to order" row (for editing, or a straight mistake).
-// Applications use `active` rather than `reversed` as their live/void flag.
 import { NextResponse } from "next/server";
-import { updateRow } from "@/lib/sheets";
+import { deleteRowsByField, updateRow } from "@/lib/sheets";
 import { withErrors } from "@/lib/api";
 
 export const PATCH = withErrors(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
@@ -10,4 +8,10 @@ export const PATCH = withErrors(async (req: Request, { params }: { params: Promi
   const reason = String(body.reason ?? "Edited");
   await updateRow("Applications", id, { active: false, reversedReason: reason });
   return NextResponse.json({ id });
+});
+
+export const DELETE = withErrors(async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
+  const { id } = await params;
+  await deleteRowsByField("Applications", "id", id);
+  return NextResponse.json({ success: true, id });
 });

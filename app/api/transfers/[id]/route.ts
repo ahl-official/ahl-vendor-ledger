@@ -1,6 +1,5 @@
-// Voids a transfer/pay-supplier/refund row (for editing, or a straight mistake).
 import { NextResponse } from "next/server";
-import { updateRow } from "@/lib/sheets";
+import { deleteRowsByField, updateRow } from "@/lib/sheets";
 import { withErrors } from "@/lib/api";
 
 export const PATCH = withErrors(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
@@ -9,4 +8,10 @@ export const PATCH = withErrors(async (req: Request, { params }: { params: Promi
   const reason = String(body.reason ?? "Edited");
   await updateRow("Transfers", id, { reversed: true, reversedReason: reason });
   return NextResponse.json({ id });
+});
+
+export const DELETE = withErrors(async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
+  const { id } = await params;
+  await deleteRowsByField("Transfers", "id", id);
+  return NextResponse.json({ success: true, id });
 });
