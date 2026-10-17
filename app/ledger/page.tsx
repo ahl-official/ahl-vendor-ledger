@@ -18,6 +18,10 @@ const LOOKUP_ROLES: Role[] = ["Vendor", "Agent", "Company"];
 type Event = {
   date: string; label: string; amount: number; currency: string; note: string;
   voided: boolean; editHref: string | null;
+  rate?: number | null;
+  inrAmount?: number | null;
+  rmbAmount?: number | null;
+  balanceRmb?: number | null;
 };
 
 export default function LedgerPage() {
@@ -52,8 +56,6 @@ export default function LedgerPage() {
 
   const nameOf = (id: string) => contacts.find((c) => c.id === id)?.name ?? id;
 
-  // Whoever funded this agent at all -- in practice there's one Company, but this stays
-  // correct even if a second one is ever added (just names the first funder found).
   const companyBehind = (agentId: string) => {
     const funding = movements.find((m) => !m.reversed && m.type === "CompanyToAgent" && m.payeeId === agentId);
     return funding ? nameOf(funding.payerId) : null;
@@ -64,6 +66,29 @@ export default function LedgerPage() {
     [contacts, roleFilter]
   );
   const selected = contacts.find((c) => c.id === selectedId);
+
+  const agentRmbBalance = (agentId: string) => {
+    let bal = 0;
+    for (const m of movements) {
+      if (m.reversed) continue;
+      const rate = m.quotedRate ?? m.actualRate;
+      if (m.type === "CompanyToAgent" && m.payeeId === agentId) {
+        if (m.currency === "RMB") bal += m.amount;
+        else if (rate && rate > 0) bal += rate > 1 ? m.amount / rate : m.amount * rate;
+        else {
+          const conv = fxConversions.find((c) => c.fundingMovementId === m.id && !c.reversed);
+          if (conv) bal += conv.toAmount;
+        }
+      } else if (m.type === "AgentToVendor" && m.payerId === agentId) {
+        if (m.currency === "RMB") bal -= m.amount;
+        else if (rate && rate > 0) bal -= rate > 1 ? m.amount / rate : m.amount * rate;
+      } else if (m.type === "AgentToCompany" && m.payerId === agentId) {
+        if (m.currency === "RMB") bal -= m.amount;
+        else if (rate && rate > 0) bal -= rate > 1 ? m.amount / rate : m.amount * rate;
+      }
+    }
+    return bal;
+  };
 
   const events = useMemo<Event[]>(() => {
     if (!selectedId || !roleFilter) return [];
@@ -113,35 +138,98 @@ export default function LedgerPage() {
     } else if (roleFilter === "Agent") {
       movements
         .filter((m) => m.type === "CompanyToAgent" && m.payeeId === selectedId)
-        .forEach((m) => out.push({
-          date: m.date, label: `Received from Company`, amount: m.amount, currency: m.currency, note: m.note,
-          voided: m.reversed, editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
-        }));
-      movements
-        .filter((m) => m.type === "AgentToVendor" && m.payerId === selectedId)
-        .forEach((m) => out.push({
-          date: m.date, label: `Paid vendor ${nameOf(m.payeeId)}`, amount: -m.amount, currency: m.currency, note: m.note,
-          voided: m.reversed, editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
-        }));
-      movements
-        .filter((m) => m.type === "AgentToCompany" && m.payerId === selectedId)
-        .forEach((m) => out.push({
-          date: m.date, label: `Returned to Company`, amount: -m.amount, currency: m.currency, note: m.note,
-          voided: m.reversed, editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
-        }));
-      fxConversions
-        .filter((c) => c.agentId === selectedId)
-        .forEach((c) => {
-          const href = c.reversed ? null : `/agent-fx?editId=${c.id}`;
+        .forEach((m) => {
+          const rate = m.quotedRate ?? m.actualRate ?? null;
+          let inrAmount: number | null = m.currency === "INR" ? m.amount : null;
+          let rmbAmount: number | null = m.currency === "RMB" ? m.amount : null;
+          if (m.currency === "INR") {
+            if (rate && rate > 0) {
+              rmbAmount = rate > 1 ? m.amount / rate : m.amount * rate;
+            } else {
+              const conv = fxConversions.find((c) => c.fundingMovementId === m.id && !c.reversed);
+              if (conv) rmbAmount = conv.toAmount;
+            }
+          } else if (m.currency === "RMB" && rate && rate > 0) {
+            inrAmount = m.amount * (rate > 1 ? rate : 1 / rate);
+          }
           out.push({
-            date: c.createdAt.slice(0, 10), label: `FX: ${c.fromCurrency} converted away`, amount: -c.fromAmount, currency: c.fromCurrency, note: c.note,
-            voided: c.reversed, editHref: href,
-          });
-          out.push({
-            date: c.createdAt.slice(0, 10), label: `FX: backs a ${c.toCurrency} payout`, amount: c.toAmount, currency: c.toCurrency, note: c.note,
-            voided: c.reversed, editHref: href,
+            date: m.date,
+            label: `Received from Company`,
+            amount: m.amount,
+            currency: m.currency,
+            note: m.note,
+            voided: m.reversed,
+            editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
+            rate,
+            inrAmount,
+            rmbAmount,
           });
         });
+
+      movements
+        .filter((m) => m.type === "AgentToVendor" && m.payerId === selectedId)
+        .forEach((m) => {
+          const rate = m.quotedRate ?? m.actualRate ?? null;
+          let rmbAmount: number | null = m.currency === "RMB" ? -m.amount : null;
+          let inrAmount: number | null = m.currency === "INR" ? -m.amount : null;
+          if (m.currency === "RMB") {
+            if (rate && rate > 0) {
+              inrAmount = -(m.amount * (rate > 1 ? rate : 1 / rate));
+            } else {
+              const conv = fxConversions.find((c) => c.spendMovementId === m.id && !c.reversed);
+              if (conv) inrAmount = -conv.fromAmount;
+            }
+          } else if (m.currency === "INR" && rate && rate > 0) {
+            rmbAmount = -(m.amount / (rate > 1 ? rate : 1 / rate));
+          }
+          out.push({
+            date: m.date,
+            label: `Paid vendor ${nameOf(m.payeeId)}`,
+            amount: -m.amount,
+            currency: m.currency,
+            note: m.note,
+            voided: m.reversed,
+            editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
+            rate,
+            inrAmount,
+            rmbAmount,
+          });
+        });
+
+      movements
+        .filter((m) => m.type === "AgentToCompany" && m.payerId === selectedId)
+        .forEach((m) => {
+          const rate = m.quotedRate ?? m.actualRate ?? null;
+          let rmbAmount: number | null = m.currency === "RMB" ? -m.amount : null;
+          let inrAmount: number | null = m.currency === "INR" ? -m.amount : null;
+          if (m.currency === "INR" && rate && rate > 0) {
+            rmbAmount = -(rate > 1 ? m.amount / rate : m.amount * rate);
+          } else if (m.currency === "RMB" && rate && rate > 0) {
+            inrAmount = -(m.amount * (rate > 1 ? rate : 1 / rate));
+          }
+          out.push({
+            date: m.date,
+            label: `Returned to Company`,
+            amount: -m.amount,
+            currency: m.currency,
+            note: m.note,
+            voided: m.reversed,
+            editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
+            rate,
+            inrAmount,
+            rmbAmount,
+          });
+        });
+
+      // Calculate running balance in RMB chronologically
+      out.sort((a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : 0));
+      let runningRmb = 0;
+      for (const e of out) {
+        if (!e.voided && e.rmbAmount != null) {
+          runningRmb += e.rmbAmount;
+        }
+        e.balanceRmb = runningRmb;
+      }
     } else if (roleFilter === "Company") {
       movements
         .filter((m) => m.type === "CompanyToAgent" && m.payerId === selectedId)
@@ -230,13 +318,22 @@ export default function LedgerPage() {
             {roleFilter === "Agent" && (
               <>
                 <p className="field-label">Running position</p>
-                {agentPos && Object.entries(agentPos).filter(([, amt]) => Math.abs(amt) > 0.01).length
-                  ? Object.entries(agentPos).filter(([, amt]) => Math.abs(amt) > 0.01).map(([c, amt]) => (
-                      <span key={c} className={`badge ${amt >= 0 ? "info" : "err"}`} style={{ marginRight: 6 }}>
-                        {amt >= 0 ? `Holds ${c} ${amt.toFixed(2)}` : `Company owes ${c} ${Math.abs(amt).toFixed(2)}`}
-                      </span>
-                    ))
-                  : <span className="muted">Settled</span>}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  {events.length > 0 && events[0].balanceRmb != null && (
+                    <span className={`badge ${events[0].balanceRmb >= 0 ? "ok" : "err"}`} style={{ fontWeight: 600 }}>
+                      {events[0].balanceRmb >= 0
+                        ? `Net Balance: RMB ${events[0].balanceRmb.toFixed(2)}`
+                        : `Company owes: RMB ${Math.abs(events[0].balanceRmb).toFixed(2)}`}
+                    </span>
+                  )}
+                  {agentPos && Object.entries(agentPos).filter(([, amt]) => Math.abs(amt) > 0.01).length
+                    ? Object.entries(agentPos).filter(([, amt]) => Math.abs(amt) > 0.01).map(([c, amt]) => (
+                        <span key={c} className={`badge ${amt >= 0 ? "info" : "err"}`}>
+                          {amt >= 0 ? `Holds ${c} ${amt.toFixed(2)}` : `Company owes ${c} ${Math.abs(amt).toFixed(2)}`}
+                        </span>
+                      ))
+                    : null}
+                </div>
               </>
             )}
             {roleFilter === "Company" && (
@@ -277,6 +374,54 @@ export default function LedgerPage() {
           <h3 style={{ marginBottom: 12 }}>Transactions</h3>
           {events.length === 0 ? (
             <p className="muted">No transactions yet.</p>
+          ) : roleFilter === "Agent" ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>What</th>
+                  <th>Rate</th>
+                  <th>Amount (INR)</th>
+                  <th>Amount (RMB)</th>
+                  <th>Balance (RMB)</th>
+                  <th>Note</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((e, i) => (
+                  <tr key={i} style={e.voided ? { opacity: 0.5, textDecoration: "line-through" } : undefined}>
+                    <td>{e.date}</td>
+                    <td>
+                      {e.label}
+                      {e.voided && <span className="badge err" style={{ marginLeft: 8, textDecoration: "none" }}>Corrected</span>}
+                    </td>
+                    <td className="muted">{e.rate != null ? e.rate.toFixed(2) : "—"}</td>
+                    <td className={e.inrAmount == null ? "muted" : e.inrAmount >= 0 ? "" : "error-text"}>
+                      {e.inrAmount != null ? `${e.inrAmount >= 0 ? "+" : ""}₹${e.inrAmount.toFixed(2)}` : "—"}
+                    </td>
+                    <td className={e.rmbAmount == null ? "muted" : e.rmbAmount >= 0 ? "" : "error-text"}>
+                      {e.rmbAmount != null ? `${e.rmbAmount >= 0 ? "+" : ""}¥${e.rmbAmount.toFixed(2)}` : "—"}
+                    </td>
+                    <td>
+                      {e.balanceRmb != null ? (
+                        <span className={`badge ${e.balanceRmb >= 0 ? "ok" : "err"}`} style={{ textDecoration: "none" }}>
+                          ¥{e.balanceRmb.toFixed(2)}
+                        </span>
+                      ) : "—"}
+                    </td>
+                    <td className="muted">{e.note || "—"}</td>
+                    <td>
+                      {e.editHref && (
+                        <Link href={e.editHref} className="muted" style={{ textDecoration: "none" }}>
+                          Edit →
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : (
             <table>
               <thead><tr><th>Date</th><th>What</th><th>Amount</th><th>Note</th><th></th></tr></thead>
@@ -318,15 +463,19 @@ export default function LedgerPage() {
           <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: 32 }}>
             {agents.map((a) => {
               const pos = Object.entries(a.position).filter(([, amt]) => Math.abs(amt) > 0.01);
+              const rmbBal = agentRmbBalance(a.id);
               return (
                 <div key={a.id} className="card">
                   <strong>{a.name}</strong>
                   <div style={{ marginTop: 8 }}>
-                    {pos.length ? pos.map(([c, amt]) => (
-                      <div key={c} className={`badge ${amt >= 0 ? "info" : "err"}`} style={{ marginRight: 6 }}>
-                        {amt >= 0 ? `Holds ${c} ${amt.toFixed(2)}` : `Company owes ${c} ${Math.abs(amt).toFixed(2)}`}
+                    <div className={`badge ${rmbBal >= 0 ? "ok" : "err"}`} style={{ marginRight: 6, marginBottom: 4 }}>
+                      {rmbBal >= 0 ? `Holds RMB ${rmbBal.toFixed(2)}` : `Company owes RMB ${Math.abs(rmbBal).toFixed(2)}`}
+                    </div>
+                    {pos.length ? (
+                      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                        {pos.map(([c, amt]) => (amt >= 0 ? `+${c} ${amt.toFixed(2)}` : `${c} ${amt.toFixed(2)}`)).join(" · ")}
                       </div>
-                    )) : <span className="muted">Settled</span>}
+                    ) : null}
                   </div>
                 </div>
               );

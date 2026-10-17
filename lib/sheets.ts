@@ -100,6 +100,54 @@ export async function clearRows(tab: SheetName) {
   });
 }
 
+/** Deletes rows from a tab where `field` matches `value`. Returns count of rows deleted. */
+export async function deleteRowsByField(tab: SheetName, field: string, value: string): Promise<number> {
+  const sheets = await client();
+  const headers = SHEETS[tab] as readonly string[];
+  const colIndex = headers.indexOf(field);
+  if (colIndex === -1) throw new Error(`${tab} has no column ${field}`);
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId() });
+  const sheetObj = meta.data.sheets?.find((s) => s.properties?.title === tab);
+  const sheetNumericId = sheetObj?.properties?.sheetId;
+  if (sheetNumericId === undefined) throw new Error(`Tab ${tab} not found in spreadsheet`);
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId(),
+    range: `${tab}!A2:${colLetter(headers.length)}`,
+  });
+  const rows = res.data.values ?? [];
+  const matchingIndices: number[] = [];
+  rows.forEach((r, i) => {
+    if (r[colIndex] === value) {
+      matchingIndices.push(i + 1); // Row 0 is header, so row 2 in 1-based is index 1
+    }
+  });
+
+  if (matchingIndices.length === 0) return 0;
+
+  // Delete from bottom to top so row indices don't shift
+  matchingIndices.sort((a, b) => b - a);
+
+  const requests = matchingIndices.map((rowIndex) => ({
+    deleteDimension: {
+      range: {
+        sheetId: sheetNumericId,
+        dimension: "ROWS",
+        startIndex: rowIndex,
+        endIndex: rowIndex + 1,
+      },
+    },
+  }));
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: sheetId(),
+    requestBody: { requests },
+  });
+
+  return matchingIndices.length;
+}
+
 function serialize(v: string | number | boolean | null | undefined): string {
   if (v === null || v === undefined) return "";
   if (typeof v === "boolean") return v ? "TRUE" : "FALSE";

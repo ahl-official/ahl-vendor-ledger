@@ -169,3 +169,43 @@ tbody tr:hover { background-color: var(--soft); }
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 0;
+}
+
+.icon-btn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+  box-shadow: 0 1px 3px rgba(28, 28, 26, 0.12);
+  transform: translateY(-1px);
+}
+
+.icon-btn.edit-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--soft);
+}
+
+.icon-btn.delete-btn:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--err-bg);
+}
+
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
