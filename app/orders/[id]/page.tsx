@@ -62,6 +62,11 @@ function OrderDetailContent() {
   const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Suggest applying the vendor's held balance (same currency) to an unpaid order.
+  const [held, setHeld] = useState(0);
+  const [hideSuggest, setHideSuggest] = useState(false);
+  const [applying, setApplying] = useState(false);
+
   // Credit note state
   const [showCreditNoteForm, setShowCreditNoteForm] = useState(false);
   const [cnAmount, setCnAmount] = useState("");
@@ -74,7 +79,14 @@ function OrderDetailContent() {
     fetch(`/api/orders/${id}`)
       .then(async (r) => {
         if (!r.ok) return setError((await r.json()).error ?? "Not found");
-        setOrder(await r.json());
+        const o: OrderDetail = await r.json();
+        setOrder(o);
+        fetch("/api/ledger")
+          .then((x) => x.json())
+          .then((d: { vendors: { id: string; held: Record<string, number> }[] }) =>
+            setHeld(d.vendors.find((v) => v.id === o.vendorId)?.held?.[o.currency] ?? 0)
+          )
+          .catch(() => setHeld(0));
       })
       .catch((e) => setError(e.message));
   };
@@ -86,6 +98,25 @@ function OrderDetailContent() {
   useEffect(() => {
     loadOrder();
   }, [id]);
+
+  const handleApplyHeld = async (amount: number) => {
+    if (!order) return;
+    setApplying(true);
+    setActionError("");
+    try {
+      const res = await fetch("/api/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendorId: order.vendorId, orderId: order.id, amount }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to apply balance");
+      loadOrder();
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Failed to apply balance");
+    }
+    setApplying(false);
+  };
 
   const handleUnlinkPayment = async (payment: AppliedPayment) => {
     if (
@@ -243,6 +274,21 @@ function OrderDetailContent() {
           </Link>
         </div>
       </div>
+
+      {order.due > 0.01 && held > 0.01 && !hideSuggest && (
+        <div className="card" style={{ background: "var(--hold-bg)", borderColor: "var(--hold-border)", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span>
+            {order.vendorName} holds <strong>{order.currency} {held.toFixed(2)}</strong>. Apply{" "}
+            <strong>{order.currency} {Math.min(held, order.due).toFixed(2)}</strong> to this order?
+          </span>
+          <span style={{ display: "flex", gap: 8 }}>
+            <button type="button" disabled={applying} onClick={() => handleApplyHeld(Math.min(held, order.due))}>
+              {applying ? "Applying..." : "Apply balance"}
+            </button>
+            <button type="button" className="secondary" onClick={() => setHideSuggest(true)}>Skip</button>
+          </span>
+        </div>
+      )}
 
       {actionError && (
         <div className="card" style={{ background: "var(--err-bg)", borderColor: "var(--err-border)", marginBottom: 16 }}>
