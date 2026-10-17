@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { Contact, MoneyMovement, Application, Transfer, Role } from "@/lib/schema";
+import type { Contact, FxConversion, MoneyMovement, Application, Transfer, Role } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 import { Loading } from "@/app/components/Loading";
 
@@ -10,12 +10,15 @@ type AgentLedger = Contact & { position: Record<string, number> };
 type OrderRow = { id: string; vendorId: string; invoiceRef: string; date: string; currency: string; total: number; paid: number; due: number };
 type LedgerResponse = {
   vendors: VendorLedger[]; agents: AgentLedger[]; orders: OrderRow[];
-  movements: MoneyMovement[]; applications: Application[]; transfers: Transfer[];
+  movements: MoneyMovement[]; applications: Application[]; transfers: Transfer[]; fxConversions: FxConversion[];
 };
 
 const LOOKUP_ROLES: Role[] = ["Vendor", "Agent", "Company"];
 
-type Event = { date: string; label: string; amount: number; currency: string; note: string };
+type Event = {
+  date: string; label: string; amount: number; currency: string; note: string;
+  voided: boolean; editHref: string | null;
+};
 
 export default function LedgerPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -25,6 +28,7 @@ export default function LedgerPage() {
   const [movements, setMovements] = useState<MoneyMovement[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [fxConversions, setFxConversions] = useState<FxConversion[]>([]);
   const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -39,6 +43,7 @@ export default function LedgerPage() {
       .then(([d, c]) => {
         setVendors(d.vendors); setAgents(d.agents); setOrders(d.orders);
         setMovements(d.movements); setApplications(d.applications); setTransfers(d.transfers);
+        setFxConversions(d.fxConversions);
         setContacts(c);
       })
       .catch((e) => setLoadError(e.message))
@@ -66,59 +71,99 @@ export default function LedgerPage() {
 
     if (roleFilter === "Vendor") {
       movements
-        .filter((m) => !m.reversed && m.type === "AgentToVendor" && m.payeeId === selectedId)
+        .filter((m) => m.type === "AgentToVendor" && m.payeeId === selectedId)
         .forEach((m) => {
           const company = companyBehind(m.payerId);
           out.push({
             date: m.date,
             label: `Received from ${nameOf(m.payerId)}${company ? ` (on behalf of ${company})` : ""}`,
             amount: m.amount, currency: m.currency, note: m.note,
+            voided: m.reversed, editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
           });
         });
       transfers
-        .filter((t) => !t.reversed && t.purpose === "Transfer" && t.toContactId === selectedId)
+        .filter((t) => t.purpose === "Transfer" && t.toContactId === selectedId)
         .forEach((t) => out.push({
           date: t.createdAt.slice(0, 10),
           label: `Received transfer from ${nameOf(t.fromVendorId)}${t.receivingOrderId ? " (paid an order)" : " (on account)"}`,
           amount: t.amount, currency: t.currency, note: t.note,
+          voided: t.reversed, editHref: t.reversed ? null : `/vendor-balance?editId=${t.id}`,
         }));
       transfers
-        .filter((t) => !t.reversed && t.fromVendorId === selectedId)
+        .filter((t) => t.fromVendorId === selectedId)
         .forEach((t) => {
           const label = t.purpose === "Transfer" ? `Transferred to ${nameOf(t.toContactId)}`
             : t.purpose === "PaySupplier" ? `Paid supplier ${nameOf(t.toContactId)}`
             : t.toContactId ? `Refunded to ${nameOf(t.toContactId)}` : "Refunded out";
-          out.push({ date: t.createdAt.slice(0, 10), label, amount: -t.amount, currency: t.currency, note: t.note });
+          out.push({
+            date: t.createdAt.slice(0, 10), label, amount: -t.amount, currency: t.currency, note: t.note,
+            voided: t.reversed, editHref: t.reversed ? null : `/vendor-balance?editId=${t.id}`,
+          });
         });
       applications
-        .filter((a) => a.active && movements.some((m) => m.id === a.movementId && m.payeeId === selectedId))
+        .filter((a) => movements.some((m) => m.id === a.movementId && m.payeeId === selectedId))
         .forEach((a) => {
           const order = orders.find((o) => o.id === a.orderId);
-          out.push({ date: a.createdAt.slice(0, 10), label: `Applied to order ${order?.invoiceRef || a.orderId}`, amount: -a.amount, currency: order?.currency ?? "", note: "" });
+          out.push({
+            date: a.createdAt.slice(0, 10), label: `Applied to order ${order?.invoiceRef || a.orderId}`,
+            amount: -a.amount, currency: order?.currency ?? "", note: "",
+            voided: !a.active, editHref: a.active ? `/vendor-balance?editId=${a.id}&kind=application` : null,
+          });
         });
     } else if (roleFilter === "Agent") {
       movements
-        .filter((m) => !m.reversed && m.type === "CompanyToAgent" && m.payeeId === selectedId)
-        .forEach((m) => out.push({ date: m.date, label: `Received from Company`, amount: m.amount, currency: m.currency, note: m.note }));
+        .filter((m) => m.type === "CompanyToAgent" && m.payeeId === selectedId)
+        .forEach((m) => out.push({
+          date: m.date, label: `Received from Company`, amount: m.amount, currency: m.currency, note: m.note,
+          voided: m.reversed, editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
+        }));
       movements
-        .filter((m) => !m.reversed && m.type === "AgentToVendor" && m.payerId === selectedId)
-        .forEach((m) => out.push({ date: m.date, label: `Paid vendor ${nameOf(m.payeeId)}`, amount: -m.amount, currency: m.currency, note: m.note }));
+        .filter((m) => m.type === "AgentToVendor" && m.payerId === selectedId)
+        .forEach((m) => out.push({
+          date: m.date, label: `Paid vendor ${nameOf(m.payeeId)}`, amount: -m.amount, currency: m.currency, note: m.note,
+          voided: m.reversed, editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
+        }));
       movements
-        .filter((m) => !m.reversed && m.type === "AgentToCompany" && m.payerId === selectedId)
-        .forEach((m) => out.push({ date: m.date, label: `Returned to Company`, amount: -m.amount, currency: m.currency, note: m.note }));
+        .filter((m) => m.type === "AgentToCompany" && m.payerId === selectedId)
+        .forEach((m) => out.push({
+          date: m.date, label: `Returned to Company`, amount: -m.amount, currency: m.currency, note: m.note,
+          voided: m.reversed, editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
+        }));
+      fxConversions
+        .filter((c) => c.agentId === selectedId)
+        .forEach((c) => {
+          const href = c.reversed ? null : `/agent-fx?editId=${c.id}`;
+          out.push({
+            date: c.createdAt.slice(0, 10), label: `FX: ${c.fromCurrency} converted away`, amount: -c.fromAmount, currency: c.fromCurrency, note: c.note,
+            voided: c.reversed, editHref: href,
+          });
+          out.push({
+            date: c.createdAt.slice(0, 10), label: `FX: backs a ${c.toCurrency} payout`, amount: c.toAmount, currency: c.toCurrency, note: c.note,
+            voided: c.reversed, editHref: href,
+          });
+        });
     } else if (roleFilter === "Company") {
       movements
-        .filter((m) => !m.reversed && m.type === "CompanyToAgent" && m.payerId === selectedId)
-        .forEach((m) => out.push({ date: m.date, label: `Sent to agent ${nameOf(m.payeeId)}`, amount: -m.amount, currency: m.currency, note: m.note }));
+        .filter((m) => m.type === "CompanyToAgent" && m.payerId === selectedId)
+        .forEach((m) => out.push({
+          date: m.date, label: `Sent to agent ${nameOf(m.payeeId)}`, amount: -m.amount, currency: m.currency, note: m.note,
+          voided: m.reversed, editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
+        }));
       movements
-        .filter((m) => !m.reversed && m.type === "AgentToCompany" && m.payeeId === selectedId)
-        .forEach((m) => out.push({ date: m.date, label: `Received from agent ${nameOf(m.payerId)}`, amount: m.amount, currency: m.currency, note: m.note }));
+        .filter((m) => m.type === "AgentToCompany" && m.payeeId === selectedId)
+        .forEach((m) => out.push({
+          date: m.date, label: `Received from agent ${nameOf(m.payerId)}`, amount: m.amount, currency: m.currency, note: m.note,
+          voided: m.reversed, editHref: m.reversed ? null : `/payments/new?editId=${m.id}`,
+        }));
       transfers
-        .filter((t) => !t.reversed && t.purpose === "Refund" && t.toContactId === selectedId)
-        .forEach((t) => out.push({ date: t.createdAt.slice(0, 10), label: `Refund received from ${nameOf(t.fromVendorId)}`, amount: t.amount, currency: t.currency, note: t.note }));
+        .filter((t) => t.purpose === "Refund" && t.toContactId === selectedId)
+        .forEach((t) => out.push({
+          date: t.createdAt.slice(0, 10), label: `Refund received from ${nameOf(t.fromVendorId)}`, amount: t.amount, currency: t.currency, note: t.note,
+          voided: t.reversed, editHref: t.reversed ? null : `/vendor-balance?editId=${t.id}`,
+        }));
     }
     return out.sort((a, b) => (a.date < b.date ? 1 : -1));
-  }, [selectedId, roleFilter, movements, transfers, applications, orders, contacts]);
+  }, [selectedId, roleFilter, movements, transfers, applications, fxConversions, orders, contacts]);
 
   const vendorOrders = roleFilter === "Vendor" ? orders.filter((o) => o.vendorId === selectedId) : [];
   const vendorHeld = roleFilter === "Vendor" ? vendors.find((v) => v.id === selectedId)?.held : undefined;
@@ -126,7 +171,7 @@ export default function LedgerPage() {
   const companyNet = useMemo(() => {
     if (roleFilter !== "Company") return undefined;
     const byCurrency: Record<string, number> = {};
-    events.forEach((e) => { byCurrency[e.currency] = (byCurrency[e.currency] ?? 0) + e.amount; });
+    events.filter((e) => !e.voided).forEach((e) => { byCurrency[e.currency] = (byCurrency[e.currency] ?? 0) + e.amount; });
     return byCurrency;
   }, [roleFilter, events]);
 
@@ -234,14 +279,15 @@ export default function LedgerPage() {
             <p className="muted">No transactions yet.</p>
           ) : (
             <table>
-              <thead><tr><th>Date</th><th>What</th><th>Amount</th><th>Note</th></tr></thead>
+              <thead><tr><th>Date</th><th>What</th><th>Amount</th><th>Note</th><th></th></tr></thead>
               <tbody>
                 {events.map((e, i) => (
-                  <tr key={i}>
+                  <tr key={i} style={e.voided ? { opacity: 0.5, textDecoration: "line-through" } : undefined}>
                     <td>{e.date}</td>
-                    <td>{e.label}</td>
+                    <td>{e.label}{e.voided && <span className="badge err" style={{ marginLeft: 8, textDecoration: "none" }}>Corrected</span>}</td>
                     <td className={e.amount >= 0 ? "" : "error-text"}>{e.amount >= 0 ? "+" : ""}{e.currency} {e.amount.toFixed(2)}</td>
                     <td className="muted">{e.note || "—"}</td>
+                    <td>{e.editHref && <Link href={e.editHref} className="muted" style={{ textDecoration: "none" }}>Edit →</Link>}</td>
                   </tr>
                 ))}
               </tbody>

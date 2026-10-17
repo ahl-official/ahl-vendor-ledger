@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import type { Contact } from "@/lib/schema";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import type { Contact, FxConversion } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 
 type Open = {
@@ -11,7 +11,18 @@ type Open = {
 type AgentLedger = Contact & { position: Record<string, number> };
 
 export default function AgentFxPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <AgentFxContent />
+    </Suspense>
+  );
+}
+
+function AgentFxContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("editId");
+
   const [agents, setAgents] = useState<AgentLedger[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [agentId, setAgentId] = useState("");
@@ -25,6 +36,8 @@ export default function AgentFxPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+  const [editLoaded, setEditLoaded] = useState(!editId);
+  const [editVoided, setEditVoided] = useState(false);
 
   useEffect(() => {
     fetchJson<{ agents: AgentLedger[] }>("/api/ledger").then((d) => setAgents(d.agents)).catch((e) => setError(e.message));
@@ -32,11 +45,31 @@ export default function AgentFxPage() {
   }, []);
 
   useEffect(() => {
-    if (!agentId) { setOpenFundings([]); setOpenSpends([]); return; }
+    if (!agentId || editId) return; // during an edit, the editId effect below owns loading the lists
     fetchJson<{ openFundings: Open[]; openSpends: Open[] }>(`/api/fx-conversions?agentId=${agentId}`)
       .then((d) => { setOpenFundings(d.openFundings); setOpenSpends(d.openSpends); })
       .catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
+
+  useEffect(() => {
+    if (!editId) return;
+    fetchJson<FxConversion>(`/api/fx-conversions/${editId}`)
+      .then(async (c) => {
+        await fetch(`/api/fx-conversions/${editId}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
+        });
+        setEditVoided(true);
+        setAgentId(c.agentId);
+        const d = await fetchJson<{ openFundings: Open[]; openSpends: Open[] }>(`/api/fx-conversions?agentId=${c.agentId}`);
+        setOpenFundings(d.openFundings); setOpenSpends(d.openSpends);
+        setFundingMovementId(c.fundingMovementId); setSpendMovementId(c.spendMovementId);
+        setFromAmount(String(c.fromAmount)); setToAmount(String(c.toAmount)); setNote(c.note);
+        setEditLoaded(true);
+      })
+      .catch((e) => { setError(e.message); setEditLoaded(true); });
+  }, [editId]);
 
   const agent = agents.find((a) => a.id === agentId);
   const funding = openFundings.find((f) => f.movementId === fundingMovementId);
@@ -85,9 +118,11 @@ export default function AgentFxPage() {
     );
   }
 
+  if (!editLoaded) return <p className="muted">Loading the entry to edit...</p>;
+
   return (
     <div>
-      <h1 style={{ marginBottom: 4 }}>Agent FX Conversion</h1>
+      <h1 style={{ marginBottom: 4 }}>{editId ? "Edit Agent FX Conversion" : "Agent FX Conversion"}</h1>
       <p className="muted" style={{ marginBottom: 24, maxWidth: 640 }}>
         Confirms that a specific INR (or other-currency) funding is what actually paid for a specific
         RMB (or other-currency) payout to a vendor. The amount is suggested from the funding&apos;s
@@ -95,6 +130,11 @@ export default function AgentFxPage() {
         even if it&apos;s more or less. Until you link them here, the agent&apos;s position shows both
         currencies separately on the Ledger.
       </p>
+      {editId && editVoided && (
+        <p className="badge hold" style={{ marginBottom: 16, display: "inline-block" }}>
+          Editing — the original link is now voided (visible on the Ledger). Save below to record its replacement.
+        </p>
+      )}
 
       <form onSubmit={submit} className="card grid" style={{ gap: 16, maxWidth: 640 }}>
         <div>
@@ -186,7 +226,9 @@ export default function AgentFxPage() {
         <div><label>Note</label><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. WeChat transfer screenshot ref" /></div>
 
         {error && <p className="error-text">{error}</p>}
-        <button type="submit" disabled={saving} style={{ justifySelf: "start" }}>{saving ? "Saving..." : "Link conversion"}</button>
+        <button type="submit" disabled={saving} style={{ justifySelf: "start" }}>
+          {saving ? "Saving..." : editId ? "Save correction" : "Link conversion"}
+        </button>
       </form>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import type { Contact } from "@/lib/schema";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import type { Application, Contact, MoneyMovement, Transfer } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 
 type Receipt = { movementId: string; date: string; currency: string; remaining: number };
@@ -16,7 +16,19 @@ const ACTIONS = [
 ] as const;
 
 export default function VendorBalancePage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <VendorBalanceContent />
+    </Suspense>
+  );
+}
+
+function VendorBalanceContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("editId");
+  const editKind = searchParams.get("kind") === "application" ? "application" : "transfer";
+
   const [vendors, setVendors] = useState<VendorLedger[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
@@ -34,6 +46,8 @@ export default function VendorBalancePage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+  const [editLoaded, setEditLoaded] = useState(!editId);
+  const [editVoided, setEditVoided] = useState(false);
 
   const load = () => {
     fetchJson<{ vendors: VendorLedger[] }>("/api/ledger").then((d) => setVendors(d.vendors)).catch((e) => setError(e.message));
@@ -41,6 +55,44 @@ export default function VendorBalancePage() {
     fetchJson<OrderRow[]>("/api/orders").then(setOrders).catch((e) => setError(e.message));
   };
   useEffect(load, []);
+
+  useEffect(() => {
+    if (!editId) return;
+    type LedgerFull = { movements: MoneyMovement[]; applications: Application[]; transfers: Transfer[] };
+    fetchJson<LedgerFull>("/api/ledger")
+      .then(async (d) => {
+        if (editKind === "transfer") {
+          const t = d.transfers.find((x) => x.id === editId);
+          if (!t) throw new Error("That entry could not be found — it may already be edited elsewhere.");
+          setVendorId(t.fromVendorId); setMovementId(t.sourceMovementId);
+          setAction(t.purpose); setToContactId(t.toContactId);
+          setAmount(String(t.amount)); setNote(t.note);
+          if (t.purpose === "Transfer") {
+            if (t.receivingOrderId) { setPaymentUse("OrderOnly"); setOrderId(t.receivingOrderId); }
+            else setPaymentUse("OnAccountOnly");
+          }
+          await fetch(`/api/transfers/${editId}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
+          });
+        } else {
+          const a = d.applications.find((x) => x.id === editId);
+          if (!a) throw new Error("That entry could not be found — it may already be edited elsewhere.");
+          const movement = d.movements.find((m) => m.id === a.movementId);
+          setVendorId(movement?.payeeId ?? ""); setMovementId(a.movementId);
+          setAction("apply"); setOrderId(a.orderId); setAmount(String(a.amount));
+          await fetch(`/api/applications/${editId}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
+          });
+        }
+        setEditVoided(true);
+        setEditLoaded(true);
+        load();
+      })
+      .catch((e) => { setError(e.message); setEditLoaded(true); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId]);
 
   const vendor = vendors.find((v) => v.id === vendorId);
   const receipt = vendor?.openReceipts.find((r) => r.movementId === movementId);
@@ -98,9 +150,16 @@ export default function VendorBalancePage() {
     );
   }
 
+  if (!editLoaded) return <p className="muted">Loading the entry to edit...</p>;
+
   return (
     <div>
-      <h1 style={{ marginBottom: 24 }}>Use Vendor Balance</h1>
+      <h1 style={{ marginBottom: 24 }}>{editId ? "Edit Vendor Balance Entry" : "Use Vendor Balance"}</h1>
+      {editId && editVoided && (
+        <p className="badge hold" style={{ marginBottom: 16, display: "inline-block" }}>
+          Editing — the original entry is now voided (visible, struck-through, on the Ledger). Save below to record its replacement.
+        </p>
+      )}
       <form onSubmit={submit} className="card grid" style={{ gap: 16, maxWidth: 640 }}>
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <div>
@@ -117,6 +176,9 @@ export default function VendorBalancePage() {
               {vendor?.openReceipts.map((r) => (
                 <option key={r.movementId} value={r.movementId}>{r.date} — {r.currency} {r.remaining.toFixed(2)} held</option>
               ))}
+              {editId && movementId && !vendor?.openReceipts.some((r) => r.movementId === movementId) && (
+                <option value={movementId}>(previously selected receipt)</option>
+              )}
             </select>
           </div>
         </div>
@@ -153,6 +215,9 @@ export default function VendorBalancePage() {
             <select value={orderId} onChange={(e) => setOrderId(e.target.value)} required>
               <option value="">Select...</option>
               {targetOrders.map((o) => <option key={o.id} value={o.id}>{o.invoiceRef || o.id} — due {o.due.toFixed(2)}</option>)}
+              {editId && orderId && !targetOrders.some((o) => o.id === orderId) && (
+                <option value={orderId}>(previously selected order)</option>
+              )}
             </select>
           </div>
         )}
@@ -185,6 +250,9 @@ export default function VendorBalancePage() {
                   }} required>
                     <option value="">Select...</option>
                     {targetOrders.map((o) => <option key={o.id} value={o.id}>{o.invoiceRef || o.id} — due {o.due.toFixed(2)}</option>)}
+                    {editId && orderId && !targetOrders.some((o) => o.id === orderId) && (
+                      <option value={orderId}>(previously selected order)</option>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -211,7 +279,9 @@ export default function VendorBalancePage() {
         {action !== "apply" && <div><label>Note / proof</label><input value={note} onChange={(e) => setNote(e.target.value)} /></div>}
 
         {error && <p className="error-text">{error}</p>}
-        <button type="submit" disabled={saving} style={{ justifySelf: "start" }}>{saving ? "Saving..." : "Save"}</button>
+        <button type="submit" disabled={saving} style={{ justifySelf: "start" }}>
+          {saving ? "Saving..." : editId ? "Save correction" : "Save"}
+        </button>
       </form>
     </div>
   );

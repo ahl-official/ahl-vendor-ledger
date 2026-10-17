@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import type { Contact, MovementType, PaymentUse } from "@/lib/schema";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import type { Application, Contact, MoneyMovement, MovementType, PaymentUse } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 
 // The vendor is always paid through the agent -- there is no direct Company → Vendor path
@@ -16,7 +16,18 @@ const TYPE_OPTIONS: { value: MovementType; label: string; payerRole: string; pay
 type OrderRow = { id: string; vendorId: string; invoiceRef: string; currency: string; due: number };
 
 export default function RecordMovementPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <RecordMovementContent />
+    </Suspense>
+  );
+}
+
+function RecordMovementContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("editId");
+
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [type, setType] = useState<MovementType>("CompanyToAgent");
@@ -38,12 +49,47 @@ export default function RecordMovementPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+  const [editLoaded, setEditLoaded] = useState(!editId);
+  const [editVoided, setEditVoided] = useState(false);
 
   useEffect(() => {
     setDate(new Date().toISOString().slice(0, 10));
     fetchJson<Contact[]>("/api/contacts").then(setContacts).catch((e) => setError(e.message));
     fetchJson<OrderRow[]>("/api/orders").then(setOrders).catch((e) => setError(e.message));
   }, []);
+
+  useEffect(() => {
+    if (!editId) return;
+    fetchJson<{ movements: MoneyMovement[] }>("/api/movements")
+      .then(async (d) => {
+        const m = d.movements.find((x) => x.id === editId);
+        if (!m) throw new Error("That entry could not be found — it may already be edited elsewhere.");
+        setType(m.type); setPayerId(m.payerId); setPayeeId(m.payeeId);
+        setAmount(String(m.amount)); setCurrency(m.currency); setDate(m.date);
+        setActualRate(m.actualRate != null ? String(m.actualRate) : "");
+        setQuotedRate(m.quotedRate != null ? String(m.quotedRate) : "");
+        setAgentFee(m.agentFee != null ? String(m.agentFee) : "");
+        setMethod(m.method); setMethodChoice(["Cash", "Bank"].includes(m.method) ? m.method : m.method ? "Other" : "");
+        setReference(m.reference); setNote(m.note);
+        setPaymentUse(m.paymentUse);
+
+        if (m.paymentUse === "OrderOnly" || m.paymentUse === "OrderPlusOnAccount") {
+          const ledger = await fetchJson<{ applications: Application[] }>("/api/ledger");
+          const app = ledger.applications.find((a) => a.movementId === editId && a.active);
+          if (app) { setOrderId(app.orderId); setAppliedAmount(String(app.amount)); }
+        }
+
+        // Void only after the form is safely prefilled, so a fetch failure above never
+        // voids an entry with nothing ready to replace it.
+        await fetch(`/api/movements/${editId}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
+        });
+        setEditVoided(true);
+        setEditLoaded(true);
+      })
+      .catch((e) => { setError(e.message); setEditLoaded(true); });
+  }, [editId]);
 
   const cfg = TYPE_OPTIONS.find((t) => t.value === type)!;
   const isVendorReceipt = type === "AgentToVendor";
@@ -86,9 +132,16 @@ export default function RecordMovementPage() {
     );
   }
 
+  if (!editLoaded) return <p className="muted">Loading the entry to edit...</p>;
+
   return (
     <div>
-      <h1 style={{ marginBottom: 24 }}>Record Money Movement</h1>
+      <h1 style={{ marginBottom: 24 }}>{editId ? "Edit Money Movement" : "Record Money Movement"}</h1>
+      {editId && editVoided && (
+        <p className="badge hold" style={{ marginBottom: 16, display: "inline-block" }}>
+          Editing — the original entry is now voided (visible, struck-through, on the Ledger). Save below to record its replacement.
+        </p>
+      )}
       <form onSubmit={submit} className="card grid" style={{ gap: 16, maxWidth: 640 }}>
         <div>
           <label>Flow</label>
@@ -160,6 +213,9 @@ export default function RecordMovementPage() {
                   }} required>
                     <option value="">Select...</option>
                     {vendorOrders.map((o) => <option key={o.id} value={o.id}>{o.invoiceRef || o.id} — due {o.due.toFixed(2)}</option>)}
+                    {editId && orderId && !vendorOrders.some((o) => o.id === orderId) && (
+                      <option value={orderId}>(previously selected order)</option>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -203,7 +259,9 @@ export default function RecordMovementPage() {
         <div><label>Note / proof link</label><input value={note} onChange={(e) => setNote(e.target.value)} /></div>
 
         {error && <p className="error-text">{error}</p>}
-        <button type="submit" disabled={saving} style={{ justifySelf: "start" }}>{saving ? "Saving..." : "Save money movement"}</button>
+        <button type="submit" disabled={saving} style={{ justifySelf: "start" }}>
+          {saving ? "Saving..." : editId ? "Save correction" : "Save money movement"}
+        </button>
       </form>
     </div>
   );

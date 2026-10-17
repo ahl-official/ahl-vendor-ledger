@@ -5,7 +5,7 @@ import { withErrors } from "@/lib/api";
 
 export const GET = withErrors(async () => {
   const d = await getAllData();
-  const { contacts, orders, movements, applications, transfers } = d;
+  const { contacts, orders, movements, applications, transfers, fxConversions } = d;
 
   const currencies = Array.from(new Set([...orders.map((o) => o.currency), ...movements.map((m) => m.currency)]));
 
@@ -23,5 +23,5 @@ export const GET = withErrors(async () => {
 
   const orderCards = orders.map((o) => ({ ...o, ...orderSummary(o, d) }));
 
-  return NextResponse.json({ vendors, agents, orders: orderCards, movements, applications, transfers });
+  return NextResponse.json({ vendors, agents, orders: orderCards, movements, applications, transfers, fxConversions });
 });
