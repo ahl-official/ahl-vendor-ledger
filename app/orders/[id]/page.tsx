@@ -33,6 +33,7 @@ type OrderDetail = {
   currency: string;
   shippingFee: number;
   adjustment: number;
+  vendorId: string;
   notes: string;
   proofUrl?: string;
   items: OrderItem[];
