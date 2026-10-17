@@ -116,7 +116,7 @@ button.secondary, .btn.secondary {
   transition: box-shadow 0.15s ease;
 }
 
-a.card:hover {
+a.card:hover, .card.clickable:hover {
   box-shadow: 0 4px 12px rgba(28, 28, 26, 0.12);
 }
 
@@ -210,3 +210,5 @@ tbody tr:hover { background-color: var(--soft); }
   transform: none;
 }
 
+
+.card.clickable { cursor: pointer; }

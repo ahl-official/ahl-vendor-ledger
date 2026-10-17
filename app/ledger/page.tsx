@@ -389,6 +389,12 @@ export default function LedgerPage() {
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [selectedId, roleFilter, movements, transfers, applications, fxConversions, creditNotes, orders, contacts]);
 
+  const openLedger = (role: Role, id: string) => {
+    setRoleFilter(role);
+    setSelectedId(id);
+    window.scrollTo({ top: 0 });
+  };
+
   const vendorOrders = roleFilter === "Vendor" ? orders.filter((o) => o.vendorId === selectedId) : [];
   const vendorHeld = roleFilter === "Vendor" ? vendors.find((v) => v.id === selectedId)?.held : undefined;
   const companyNet = useMemo(() => {
@@ -784,7 +790,7 @@ export default function LedgerPage() {
             {vendors.map((v) => {
               const held = Object.entries(v.held).filter(([, amt]) => Math.abs(amt) > 0.01);
               return (
-                <div key={v.id} className="card">
+                <div key={v.id} className="card clickable" role="button" tabIndex={0} onClick={() => openLedger("Vendor", v.id)} onKeyDown={(e) => e.key === "Enter" && openLedger("Vendor", v.id)}>
                   <strong>{v.name}</strong>
                   <div style={{ marginTop: 8 }}>
                     {held.length
@@ -802,7 +808,7 @@ export default function LedgerPage() {
             {agents.map((a) => {
               const rmbBal = agentRmbBalance(a.id);
               return (
-                <div key={a.id} className="card">
+                <div key={a.id} className="card clickable" role="button" tabIndex={0} onClick={() => openLedger("Agent", a.id)} onKeyDown={(e) => e.key === "Enter" && openLedger("Agent", a.id)}>
                   <strong>{a.name}</strong>
                   <div style={{ marginTop: 8 }}>
                     <div className={`badge ${rmbBal > 0.001 ? "hold" : rmbBal < -0.001 ? "err" : "ok"}`}>
