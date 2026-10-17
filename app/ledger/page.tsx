@@ -47,6 +47,13 @@ export default function LedgerPage() {
 
   const nameOf = (id: string) => contacts.find((c) => c.id === id)?.name ?? id;
 
+  // Whoever funded this agent at all -- in practice there's one Company, but this stays
+  // correct even if a second one is ever added (just names the first funder found).
+  const companyBehind = (agentId: string) => {
+    const funding = movements.find((m) => !m.reversed && m.type === "CompanyToAgent" && m.payeeId === agentId);
+    return funding ? nameOf(funding.payerId) : null;
+  };
+
   const contactOptions = useMemo(
     () => (roleFilter ? contacts.filter((c) => c.roles.includes(roleFilter)) : []),
     [contacts, roleFilter]
@@ -60,7 +67,14 @@ export default function LedgerPage() {
     if (roleFilter === "Vendor") {
       movements
         .filter((m) => !m.reversed && m.type === "AgentToVendor" && m.payeeId === selectedId)
-        .forEach((m) => out.push({ date: m.date, label: `Received from ${nameOf(m.payerId)}`, amount: m.amount, currency: m.currency, note: m.note }));
+        .forEach((m) => {
+          const company = companyBehind(m.payerId);
+          out.push({
+            date: m.date,
+            label: `Received from ${nameOf(m.payerId)}${company ? ` (on behalf of ${company})` : ""}`,
+            amount: m.amount, currency: m.currency, note: m.note,
+          });
+        });
       transfers
         .filter((t) => !t.reversed && t.purpose === "Transfer" && t.toContactId === selectedId)
         .forEach((t) => out.push({
