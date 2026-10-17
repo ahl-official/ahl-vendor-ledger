@@ -64,7 +64,7 @@ function OrderDetailContent() {
   // Credit note state
   const [showCreditNoteForm, setShowCreditNoteForm] = useState(false);
   const [cnAmount, setCnAmount] = useState("");
-  const [cnDate, setCnDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cnDate, setCnDate] = useState("");
   const [cnReason, setCnReason] = useState("");
   const [cnSaving, setCnSaving] = useState(false);
   const [cnDeletingId, setCnDeletingId] = useState<string | null>(null);
@@ -77,6 +77,10 @@ function OrderDetailContent() {
       })
       .catch((e) => setError(e.message));
   };
+
+  useEffect(() => {
+    setCnDate(new Date().toISOString().slice(0, 10));
+  }, []);
 
   useEffect(() => {
     loadOrder();

@@ -26,7 +26,7 @@ export default function OrdersPage() {
   // Quick Credit Note state
   const [showCnModal, setShowCnModal] = useState(false);
   const [cnOrderId, setCnOrderId] = useState("");
-  const [cnDate, setCnDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cnDate, setCnDate] = useState("");
   const [cnAmount, setCnAmount] = useState("");
   const [cnReason, setCnReason] = useState("");
   const [cnSaving, setCnSaving] = useState(false);
@@ -36,6 +36,10 @@ export default function OrdersPage() {
       .then(setOrders)
       .catch((e) => setLoadError(e.message));
   };
+
+  useEffect(() => {
+    setCnDate(new Date().toISOString().slice(0, 10));
+  }, []);
 
   useEffect(() => {
     Promise.all([fetchJson<OrderRow[]>("/api/orders"), fetchJson<Contact[]>("/api/contacts")])
