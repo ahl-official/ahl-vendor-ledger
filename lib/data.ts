@@ -16,7 +16,7 @@ const parseContacts = (rows: Row[]): Contact[] =>
     active: bool(r.active),
     legacyId: r.legacyId,
     createdAt: r.createdAt,
-  }));
+  })).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
 const parseOrders = (rows: Row[]): Order[] =>
   rows.filter((r) => r.id).map((r) => ({
