@@ -34,6 +34,7 @@ type OrderDetail = {
   shippingFee: number;
   adjustment: number;
   notes: string;
+  proofUrl?: string;
   items: OrderItem[];
   appliedPayments?: AppliedPayment[];
   creditNotes?: CreditNoteItem[];
@@ -458,6 +459,13 @@ function OrderDetailContent() {
           </p>
         )}
       </div>
+
+      {order.proofUrl && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="field-label">Actual invoice</div>
+          <a href={order.proofUrl} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>View uploaded invoice</a>
+        </div>
+      )}
 
       {order.notes && (
         <div className="card">

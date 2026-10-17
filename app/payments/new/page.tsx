@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Application, Contact, MoneyMovement, MovementType, PaymentUse } from "@/lib/schema";
 import { METHOD_DEFAULTS, REFERENCE_DEFAULTS } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
+import { ProofUpload } from "@/app/components/ProofUpload";
 
 // The vendor is always paid through the agent -- there is no direct Company → Vendor path
 // (confirmed business rule, 16 Oct 2026). Company → Agent and Agent → Vendor can be recorded
@@ -35,7 +36,8 @@ function RecordMovementContent() {
   const [payerId, setPayerId] = useState("");
   const [payeeId, setPayeeId] = useState("");
   const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState("RMB");
+  const [currency, setCurrency] = useState("INR");
+  const [proofUrl, setProofUrl] = useState("");
   const [date, setDate] = useState("");
   const [actualRate, setActualRate] = useState("");
   const [quotedRate, setQuotedRate] = useState("");
@@ -78,6 +80,7 @@ function RecordMovementContent() {
         setMethod(m.method); setMethodChoice(optionLists.method.includes(m.method) ? m.method : m.method ? "Other" : "");
         setReference(m.reference); setReferenceChoice(optionLists.reference.includes(m.reference) ? m.reference : m.reference ? "Other" : "");
         setNote(m.note);
+        setProofUrl(m.proofUrl);
         setPaymentUse(m.paymentUse);
 
         if (m.paymentUse === "OrderOnly" || m.paymentUse === "OrderPlusOnAccount") {
@@ -124,7 +127,7 @@ function RecordMovementContent() {
         body: JSON.stringify({
           type, payerId, payeeId, amount: Number(amount), currency, date,
           actualRate: actualRate || null, quotedRate: quotedRate || null, agentFee: agentFee || null,
-          method, reference, note,
+          method, reference, note, proofUrl,
           paymentUse: isVendorReceipt ? paymentUse : "",
           orderId: paymentUse === "OnAccountOnly" ? "" : orderId,
           appliedAmount: paymentUse === "OnAccountOnly" ? 0 : Number(appliedAmount || 0),
@@ -171,7 +174,7 @@ function RecordMovementContent() {
       <form onSubmit={submit} className="card grid" style={{ gap: 16, maxWidth: 640 }}>
         <div>
           <label>Flow</label>
-          <select value={type} onChange={(e) => { setType(e.target.value as MovementType); setPayerId(""); setPayeeId(""); setPaymentUse(""); setOrderId(""); }}>
+          <select value={type} onChange={(e) => { const t = e.target.value as MovementType; setType(t); setCurrency(t === "AgentToVendor" ? "RMB" : "INR"); setPayerId(""); setPayeeId(""); setPaymentUse(""); setOrderId(""); }}>
             {TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
@@ -298,6 +301,7 @@ function RecordMovementContent() {
             )}
           </div>
         </div>
+        <ProofUpload label="Proof of transaction (PDF or image, optional)" url={proofUrl} onChange={setProofUrl} />
         <div><label>Note / proof link</label><input value={note} onChange={(e) => setNote(e.target.value)} /></div>
 
         {error && <p className="error-text">{error}</p>}

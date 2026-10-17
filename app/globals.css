@@ -126,6 +126,7 @@ a.card:hover {
 }
 
 .badge {
+  color: var(--ink);
   display: inline-block;
   padding: 2px 8px;
   border-radius: 2px;

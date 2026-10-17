@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Contact } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
+import { ProofUpload } from "@/app/components/ProofUpload";
 
 interface Line { description: string; sku: string; qty: string; unit: string; unitPrice: string }
 const blankLine = (): Line => ({ description: "", sku: "", qty: "1", unit: "", unitPrice: "" });
@@ -13,10 +14,11 @@ export default function NewOrderPage() {
   const [vendorId, setVendorId] = useState("");
   const [invoiceRef, setInvoiceRef] = useState("");
   const [date, setDate] = useState("");
-  const [currency, setCurrency] = useState("USD");
+  const [currency, setCurrency] = useState("RMB");
   const [shippingFee, setShippingFee] = useState("0");
   const [adjustment, setAdjustment] = useState("0");
   const [notes, setNotes] = useState("");
+  const [proofUrl, setProofUrl] = useState("");
   const [lines, setLines] = useState<Line[]>([blankLine()]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -50,7 +52,7 @@ export default function NewOrderPage() {
         vendorId, invoiceRef, date, currency,
         shippingFee: Number(shippingFee) || 0,
         adjustment: Number(adjustment) || 0,
-        notes,
+        notes, proofUrl,
         items: items.map((l) => ({ ...l, qty: Number(l.qty) || 0, unitPrice: Number(l.unitPrice) || 0 })),
       }),
     });
@@ -83,7 +85,7 @@ export default function NewOrderPage() {
           <div>
             <label>Currency</label>
             <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
-              <option>USD</option><option>RMB</option><option>INR</option>
+              <option>RMB</option><option>INR</option><option>USD</option>
             </select>
           </div>
         </div>
@@ -125,7 +127,10 @@ export default function NewOrderPage() {
           </div>
         </div>
 
-        <div className="card"><label>Notes / proof</label><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} /></div>
+        <div className="card grid">
+          <ProofUpload label="Actual invoice (PDF or image, optional)" url={proofUrl} onChange={setProofUrl} />
+          <div><label>Notes</label><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} /></div>
+        </div>
 
         {error && <p className="error-text">{error}</p>}
         <button type="submit" disabled={saving} style={{ justifySelf: "start" }}>{saving ? "Saving..." : "Save order"}</button>

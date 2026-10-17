@@ -4,6 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Contact, OrderItem } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
+import { ProofUpload } from "@/app/components/ProofUpload";
 import { Loading } from "@/app/components/Loading";
 
 interface Line {
@@ -27,6 +28,7 @@ type OrderDetail = {
   shippingFee: number;
   adjustment: number;
   notes: string;
+  proofUrl?: string;
   items: OrderItem[];
   total: number;
   paid: number;
@@ -52,6 +54,7 @@ function EditOrderContent() {
   const [shippingFee, setShippingFee] = useState("0");
   const [adjustment, setAdjustment] = useState("0");
   const [notes, setNotes] = useState("");
+  const [proofUrl, setProofUrl] = useState("");
   const [lines, setLines] = useState<Line[]>([blankLine()]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -72,6 +75,7 @@ function EditOrderContent() {
         setShippingFee(String(ord.shippingFee ?? 0));
         setAdjustment(String(ord.adjustment ?? 0));
         setNotes(ord.notes || "");
+        setProofUrl(ord.proofUrl || "");
         setPaidAmount(ord.paid || 0);
         if (ord.items && ord.items.length > 0) {
           setLines(
@@ -116,6 +120,7 @@ function EditOrderContent() {
         shippingFee: Number(shippingFee) || 0,
         adjustment: Number(adjustment) || 0,
         notes,
+        proofUrl,
         items: items.map((l) => ({ ...l, qty: Number(l.qty) || 0, unitPrice: Number(l.unitPrice) || 0 })),
       }),
     });
@@ -282,9 +287,12 @@ function EditOrderContent() {
           </div>
         </div>
 
-        <div className="card">
-          <label>Notes / proof</label>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+        <div className="card grid">
+          <ProofUpload label="Actual invoice (PDF or image, optional)" url={proofUrl} onChange={setProofUrl} />
+          <div>
+            <label>Notes</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+          </div>
         </div>
 
         {error && <p className="error-text">{error}</p>}

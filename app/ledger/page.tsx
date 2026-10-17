@@ -113,6 +113,11 @@ export default function LedgerPage() {
     return bal;
   };
 
+  const proofById = useMemo(
+    () => new Map([...movements, ...transfers].filter((x) => x.proofUrl).map((x) => [x.id, x.proofUrl])),
+    [movements, transfers]
+  );
+
   const events = useMemo<Event[]>(() => {
     if (!selectedId || !roleFilter) return [];
     const out: Event[] = [];
@@ -580,7 +585,7 @@ export default function LedgerPage() {
                         </span>
                       ) : "—"}
                     </td>
-                    <td className="muted">{e.note || "—"}</td>
+                    <td className="muted">{e.note || "—"}{proofById.get(e.id) && <> <a href={proofById.get(e.id)} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>proof</a></>}</td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                         {e.editHref && (
@@ -673,7 +678,7 @@ export default function LedgerPage() {
                         "—"
                       )}
                     </td>
-                    <td className="muted">{e.note || "—"}</td>
+                    <td className="muted">{e.note || "—"}{proofById.get(e.id) && <> <a href={proofById.get(e.id)} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>proof</a></>}</td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                         {e.editHref && (
@@ -729,7 +734,7 @@ export default function LedgerPage() {
                     <td>{e.date}</td>
                     <td>{e.label}</td>
                     <td className={e.amount >= 0 ? "" : "error-text"}>{e.amount >= 0 ? "+" : ""}{e.currency} {e.amount.toFixed(2)}</td>
-                    <td className="muted">{e.note || "—"}</td>
+                    <td className="muted">{e.note || "—"}{proofById.get(e.id) && <> <a href={proofById.get(e.id)} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>proof</a></>}</td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                         {e.editHref && (

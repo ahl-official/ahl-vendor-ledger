@@ -3,6 +3,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Application, Contact, MoneyMovement, Transfer } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
+import { ProofUpload } from "@/app/components/ProofUpload";
 
 type Receipt = { movementId: string; date: string; currency: string; remaining: number };
 type VendorLedger = Contact & { held: Record<string, number>; openReceipts: Receipt[] };
@@ -40,6 +41,7 @@ function VendorBalanceContent() {
   const [paymentUse, setPaymentUse] = useState<"OrderOnly" | "OnAccountOnly" | "OrderPlusOnAccount" | "">("");
   const [appliedAmount, setAppliedAmount] = useState("");
   const [note, setNote] = useState("");
+  const [proofUrl, setProofUrl] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
@@ -79,6 +81,7 @@ function VendorBalanceContent() {
           setAmount(String(t.amount));
           setOriginalEditAmount(t.amount);
           setNote(t.note);
+          setProofUrl(t.proofUrl);
           if (t.purpose === "Transfer") {
             if (t.receivingOrderId) {
               setPaymentUse("OrderOnly");
@@ -196,6 +199,7 @@ function VendorBalanceContent() {
                 receivingOrderId: isTransferSplit ? (paymentUse === "OnAccountOnly" ? "" : orderId) : orderId,
                 appliedAmount: isTransferSplit ? Number(effectiveApplied || 0) : undefined,
                 note,
+                proofUrl,
               }),
             });
       setSaving(false);
@@ -462,10 +466,13 @@ function VendorBalanceContent() {
         )}
 
         {action !== "apply" && (
-          <div>
-            <label>Note / proof</label>
-            <input value={note} onChange={(e) => setNote(e.target.value)} />
-          </div>
+          <>
+            <ProofUpload label="Proof of transaction (PDF or image, optional)" url={proofUrl} onChange={setProofUrl} />
+            <div>
+              <label>Note / proof link</label>
+              <input value={note} onChange={(e) => setNote(e.target.value)} />
+            </div>
+          </>
         )}
 
         {error && <p className="error-text">{error}</p>}
