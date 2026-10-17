@@ -46,6 +46,7 @@ export default function VendorBalancePage() {
   const receipt = vendor?.openReceipts.find((r) => r.movementId === movementId);
   const recipients = action === "Transfer" ? contacts.filter((c) => c.roles.includes("Vendor") && c.id !== vendorId)
     : action === "PaySupplier" ? contacts.filter((c) => c.roles.includes("Supplier"))
+    : action === "Refund" ? contacts.filter((c) => c.roles.includes("Company"))
     : [];
   const targetOrders = useMemo(
     () => orders.filter((o) => o.vendorId === (action === "apply" ? vendorId : toContactId) && o.currency === receipt?.currency && o.due > 0.01),
@@ -72,7 +73,7 @@ export default function VendorBalancePage() {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sourceMovementId: movementId, fromVendorId: vendorId, purpose: action,
-            toContactId: action === "Refund" ? "" : toContactId,
+            toContactId,
             amount: amt, currency: receipt.currency,
             paymentUse: isTransferSplit ? paymentUse : undefined,
             receivingOrderId: isTransferSplit ? (paymentUse === "OnAccountOnly" ? "" : orderId) : orderId,
@@ -133,10 +134,13 @@ export default function VendorBalancePage() {
           </select>
         </div>
 
-        {(action === "Transfer" || action === "PaySupplier") && (
+        {(action === "Transfer" || action === "PaySupplier" || action === "Refund") && (
           <div>
-            <label>{action === "Transfer" ? "Transfer to vendor" : "Pay supplier"}</label>
-            <select value={toContactId} onChange={(e) => setToContactId(e.target.value)} required>
+            <label>
+              {action === "Transfer" ? "Transfer to vendor" : action === "PaySupplier" ? "Pay supplier" : "Refund to"}
+              {action === "Refund" && " (optional, but shows up clearly on their Ledger page)"}
+            </label>
+            <select value={toContactId} onChange={(e) => setToContactId(e.target.value)} required={action !== "Refund"}>
               <option value="">Select...</option>
               {recipients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>

@@ -73,7 +73,7 @@ export default function LedgerPage() {
         .forEach((t) => {
           const label = t.purpose === "Transfer" ? `Transferred to ${nameOf(t.toContactId)}`
             : t.purpose === "PaySupplier" ? `Paid supplier ${nameOf(t.toContactId)}`
-            : "Refunded out";
+            : t.toContactId ? `Refunded to ${nameOf(t.toContactId)}` : "Refunded out";
           out.push({ date: t.createdAt.slice(0, 10), label, amount: -t.amount, currency: t.currency, note: t.note });
         });
       applications
@@ -99,6 +99,9 @@ export default function LedgerPage() {
       movements
         .filter((m) => !m.reversed && m.type === "AgentToCompany" && m.payeeId === selectedId)
         .forEach((m) => out.push({ date: m.date, label: `Received from agent ${nameOf(m.payerId)}`, amount: m.amount, currency: m.currency, note: m.note }));
+      transfers
+        .filter((t) => !t.reversed && t.purpose === "Refund" && t.toContactId === selectedId)
+        .forEach((t) => out.push({ date: t.createdAt.slice(0, 10), label: `Refund received from ${nameOf(t.fromVendorId)}`, amount: t.amount, currency: t.currency, note: t.note }));
     }
     return out.sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [selectedId, roleFilter, movements, transfers, applications, orders, contacts]);

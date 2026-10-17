@@ -13,6 +13,9 @@ export const GET = withErrors(async (req: Request) => {
   return NextResponse.json({
     openFundings: agentOpenFundings(agentId, d).map((f) => ({
       movementId: f.movement.id, date: f.movement.date, currency: f.movement.currency, remaining: f.remaining,
+      // Carried through so the UI can suggest a converted amount instead of making
+      // someone do the division by hand -- still just a suggestion, never enforced.
+      actualRate: f.movement.actualRate, quotedRate: f.movement.quotedRate,
     })),
     openSpends: agentOpenSpends(agentId, d).map((s) => ({
       movementId: s.movement.id, date: s.movement.date, currency: s.movement.currency,

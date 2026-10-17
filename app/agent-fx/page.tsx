@@ -4,7 +4,10 @@ import { useRouter } from "next/navigation";
 import type { Contact } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 
-type Open = { movementId: string; date: string; currency: string; remaining: number; type?: string; payeeId?: string };
+type Open = {
+  movementId: string; date: string; currency: string; remaining: number;
+  type?: string; payeeId?: string; actualRate?: number | null; quotedRate?: number | null;
+};
 type AgentLedger = Contact & { position: Record<string, number> };
 
 export default function AgentFxPage() {
@@ -39,6 +42,15 @@ export default function AgentFxPage() {
   const funding = openFundings.find((f) => f.movementId === fundingMovementId);
   const spend = openSpends.find((s) => s.movementId === spendMovementId);
   const contactName = (id?: string) => contacts.find((c) => c.id === id)?.name ?? id ?? "";
+
+  // A starting point only, from the rate recorded on the funding -- never a cap. The
+  // accountant can always type over it with whatever the agent actually gave, more or less.
+  const rate = funding?.quotedRate ?? funding?.actualRate ?? null;
+  const suggestedToAmount = rate && fromAmount ? Number(fromAmount) / rate : null;
+  // Positive = actual came in below the rate-implied amount ("less"); negative = above ("more").
+  const variancePct = suggestedToAmount && toAmount
+    ? ((suggestedToAmount - Number(toAmount)) / suggestedToAmount) * 100
+    : null;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,8 +90,9 @@ export default function AgentFxPage() {
       <h1 style={{ marginBottom: 4 }}>Agent FX Conversion</h1>
       <p className="muted" style={{ marginBottom: 24, maxWidth: 640 }}>
         Confirms that a specific INR (or other-currency) funding is what actually paid for a specific
-        RMB (or other-currency) payout to a vendor. Nothing is calculated automatically — enter the real
-        amounts the agent converted. Until you link them here, the agent&apos;s position shows both
+        RMB (or other-currency) payout to a vendor. The amount is suggested from the funding&apos;s
+        recorded rate, but it&apos;s only a starting point — always enter what the agent actually gave,
+        even if it&apos;s more or less. Until you link them here, the agent&apos;s position shows both
         currencies separately on the Ledger.
       </p>
 
@@ -139,6 +152,16 @@ export default function AgentFxPage() {
           <div>
             <label>{spend ? `${spend.currency} this backs on the spend` : "To amount"} {spend && `(max ${spend.remaining.toFixed(2)})`}</label>
             <input type="number" value={toAmount} onChange={(e) => setToAmount(e.target.value)} required />
+            {suggestedToAmount !== null && spend && Math.abs(suggestedToAmount - Number(toAmount || 0)) > 0.01 && (
+              <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                At the funding&apos;s rate ({rate}), that&apos;s ~{spend.currency} {suggestedToAmount.toFixed(2)}.{" "}
+                <button type="button" className="secondary" style={{ padding: "2px 8px", fontSize: 12 }}
+                  onClick={() => setToAmount(suggestedToAmount.toFixed(2))}>
+                  Use this
+                </button>
+                {" "}— or just type what the agent actually gave, even if it's different.
+              </p>
+            )}
           </div>
         </div>
 
@@ -148,6 +171,15 @@ export default function AgentFxPage() {
             {" "}(implied rate {(Number(fromAmount) / Number(toAmount)).toFixed(4)} {funding.currency}/{spend.currency}).
             Funding left after: {funding.currency} {(funding.remaining - Number(fromAmount)).toFixed(2)}.
             Spend still unbacked after: {spend.currency} {(spend.remaining - Number(toAmount)).toFixed(2)}.
+          </p>
+        )}
+
+        {/* Flags, doesn't block saving -- a real conversion can legitimately differ from the
+            quoted rate (agent gave extra, rounding, a mid-month rate move). It's just worth a glance. */}
+        {variancePct !== null && Math.abs(variancePct) > 2 && spend && (
+          <p className="badge hold" style={{ justifySelf: "start" }}>
+            ⚠ {Math.abs(variancePct).toFixed(1)}% {variancePct > 0 ? "less" : "more"} than the rate-implied amount
+            {" "}({spend.currency} {Math.abs(Number(toAmount) - (suggestedToAmount ?? 0)).toFixed(2)} difference) — double-check before saving.
           </p>
         )}
 
