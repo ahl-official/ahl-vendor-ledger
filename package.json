@@ -12,7 +12,8 @@
     "seed:review-contacts": "node --env-file=.env.local --experimental-strip-types scripts/seed-review-contacts.ts",
     "clear:test-activity": "node --env-file=.env.local --experimental-strip-types scripts/clear-test-activity.ts",
     "seed:test-contacts": "node --env-file=.env.local --experimental-strip-types scripts/seed-test-contacts.ts",
-    "sheet:sync-tabs": "node --env-file=.env.local --experimental-strip-types scripts/add-missing-tabs.ts"
+    "sheet:sync-tabs": "node --env-file=.env.local --experimental-strip-types scripts/add-missing-tabs.ts",
+    "add:contact": "node --env-file=.env.local --experimental-strip-types scripts/add-contact.ts"
   },
   "dependencies": {
     "googleapis": "^186.0.0",

@@ -46,6 +46,9 @@ export const SHEETS = {
     "fromCurrency", "fromAmount", "toCurrency", "toAmount",
     "note", "reversed", "reversedReason", "createdAt",
   ],
+  // Remembers every free-typed "Other" value for Reference/Method so it becomes a normal
+  // dropdown option from then on, for everyone -- never typed twice. See lib/options.ts.
+  Custom_Options: ["id", "field", "value", "createdAt"],
 } as const;
 
 export type SheetName = keyof typeof SHEETS;
@@ -109,3 +112,15 @@ export interface FxConversion {
   fromCurrency: string; fromAmount: number; toCurrency: string; toAmount: number;
   note: string; reversed: boolean; reversedReason: string; createdAt: string;
 }
+
+export const OPTION_FIELDS = ["reference", "method"] as const;
+export type OptionField = (typeof OPTION_FIELDS)[number];
+
+export interface CustomOption {
+  id: string; field: OptionField; value: string; createdAt: string;
+}
+
+// Starting choices for the Reference and Method dropdowns. Whatever someone types under
+// "Other" gets remembered (see lib/options.ts) and joins this list for everyone, forever.
+export const REFERENCE_DEFAULTS = ["Vinitt Desai", "WhatsApp Group"];
+export const METHOD_DEFAULTS = ["Cash", "Bank", "Ali Pay"];

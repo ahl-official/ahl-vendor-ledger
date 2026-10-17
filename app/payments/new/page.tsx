@@ -2,6 +2,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Application, Contact, MoneyMovement, MovementType, PaymentUse } from "@/lib/schema";
+import { METHOD_DEFAULTS, REFERENCE_DEFAULTS } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 
 // The vendor is always paid through the agent -- there is no direct Company → Vendor path
@@ -42,6 +43,10 @@ function RecordMovementContent() {
   const [method, setMethod] = useState("");
   const [methodChoice, setMethodChoice] = useState("");
   const [reference, setReference] = useState("");
+  const [referenceChoice, setReferenceChoice] = useState("");
+  const [optionLists, setOptionLists] = useState<{ reference: string[]; method: string[] }>({
+    reference: REFERENCE_DEFAULTS, method: METHOD_DEFAULTS,
+  });
   const [note, setNote] = useState("");
   const [paymentUse, setPaymentUse] = useState<PaymentUse | "">("");
   const [orderId, setOrderId] = useState("");
@@ -56,6 +61,7 @@ function RecordMovementContent() {
     setDate(new Date().toISOString().slice(0, 10));
     fetchJson<Contact[]>("/api/contacts").then(setContacts).catch((e) => setError(e.message));
     fetchJson<OrderRow[]>("/api/orders").then(setOrders).catch((e) => setError(e.message));
+    fetchJson<{ reference: string[]; method: string[] }>("/api/options").then(setOptionLists).catch((e) => setError(e.message));
   }, []);
 
   useEffect(() => {
@@ -69,8 +75,9 @@ function RecordMovementContent() {
         setActualRate(m.actualRate != null ? String(m.actualRate) : "");
         setQuotedRate(m.quotedRate != null ? String(m.quotedRate) : "");
         setAgentFee(m.agentFee != null ? String(m.agentFee) : "");
-        setMethod(m.method); setMethodChoice(["Cash", "Bank"].includes(m.method) ? m.method : m.method ? "Other" : "");
-        setReference(m.reference); setNote(m.note);
+        setMethod(m.method); setMethodChoice(optionLists.method.includes(m.method) ? m.method : m.method ? "Other" : "");
+        setReference(m.reference); setReferenceChoice(optionLists.reference.includes(m.reference) ? m.reference : m.reference ? "Other" : "");
+        setNote(m.note);
         setPaymentUse(m.paymentUse);
 
         if (m.paymentUse === "OrderOnly" || m.paymentUse === "OrderPlusOnAccount") {
@@ -246,15 +253,24 @@ function RecordMovementContent() {
             <label>Method</label>
             <select value={methodChoice} onChange={(e) => { const v = e.target.value; setMethodChoice(v); setMethod(v === "Other" ? "" : v); }}>
               <option value="">Select...</option>
-              <option value="Cash">Cash</option>
-              <option value="Bank">Bank</option>
+              {optionLists.method.map((m) => <option key={m} value={m}>{m}</option>)}
               <option value="Other">Other</option>
             </select>
             {methodChoice === "Other" && (
-              <input style={{ marginTop: 8 }} value={method} onChange={(e) => setMethod(e.target.value)} placeholder="Type the method" required />
+              <input style={{ marginTop: 8 }} value={method} onChange={(e) => setMethod(e.target.value)} placeholder="Type the method — remembered for next time" required />
             )}
           </div>
-          <div><label>Reference</label><input value={reference} onChange={(e) => setReference(e.target.value)} /></div>
+          <div>
+            <label>Reference</label>
+            <select value={referenceChoice} onChange={(e) => { const v = e.target.value; setReferenceChoice(v); setReference(v === "Other" ? "" : v); }}>
+              <option value="">Select...</option>
+              {optionLists.reference.map((r) => <option key={r} value={r}>{r}</option>)}
+              <option value="Other">Other</option>
+            </select>
+            {referenceChoice === "Other" && (
+              <input style={{ marginTop: 8 }} value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Type the reference — remembered for next time" />
+            )}
+          </div>
         </div>
         <div><label>Note / proof link</label><input value={note} onChange={(e) => setNote(e.target.value)} /></div>
 

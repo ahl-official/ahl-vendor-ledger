@@ -3,6 +3,7 @@ import { getAllData } from "@/lib/data";
 import { orderSummary } from "@/lib/ledger";
 import type { MovementType, PaymentUse } from "@/lib/schema";
 import { appendRow, newId } from "@/lib/sheets";
+import { registerOptionIfNew } from "@/lib/options";
 import { withErrors } from "@/lib/api";
 
 export const GET = withErrors(async () => {
@@ -84,6 +85,13 @@ export const POST = withErrors(async (req: Request) => {
       createdAt,
     });
   }
+
+  // A typed "Other" value is remembered so it's a normal dropdown choice from now on.
+  // Sequential, not Promise.all: two concurrent appends to the same sheet tab can race
+  // and silently drop one (Sheets API has no cross-call locking) -- this happened in
+  // testing, losing a reference value when both ran in parallel.
+  await registerOptionIfNew("reference", body.reference ?? "");
+  await registerOptionIfNew("method", body.method ?? "");
 
   return NextResponse.json({ id });
 });
