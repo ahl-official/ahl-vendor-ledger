@@ -15,9 +15,10 @@ This is a **new, separate project** — not a rewrite of the old Apps Script led
 - **Money_Movements** — a *fresh* receipt of cash: `CompanyToAgent`, `AgentToCompany`, or `AgentToVendor`. The vendor is always paid through the agent, so only `AgentToVendor` can be applied to an order or held on-account.
 - **Applications** — spends part of a vendor receipt against one of that vendor's orders.
 - **Transfers** — spends part of a vendor's held balance on something other than its own order: `Transfer` (to another vendor), `PaySupplier` (external, no held balance created), or `Refund`.
+- **FX_Conversions** — explicitly links an agent's funding (e.g. INR) to the payout it paid for (e.g. RMB). Never automatic — see "Agent position" below.
 - Every table is **append-only** — nothing is edited in place, so the rows themselves are the audit trail. Corrections are new rows, not overwrites.
 - All balances (order due, vendor held, agent position) are **computed live** from source rows on every read — never cached/stale — see `lib/ledger.ts`.
-- Agent position is tracked **per currency, never netted** — e.g. an agent can simultaneously "hold INR 15,000" and have "company owes RMB 8,000" if funding and spend currencies differ.
+- **Agent position is tracked per currency, never auto-netted.** An agent funded in INR who pays a vendor in RMB shows *both* "Holds INR X" and "Company owes RMB Y" at once — the app never assumes a conversion happened. Confirming one is a separate, explicit step on the **Agent FX** page, which links a specific funding amount to a specific payout amount; only then does the position net to settled. Nothing auto-calculates the payout from the funding's rate — you always enter the real amount that moved.
 
 ## Local setup
 
@@ -53,7 +54,8 @@ This is a **new, separate project** — not a rewrite of the old Apps Script led
 - **Orders** — vendor, invoice ref, multi-line products (description/SKU/qty/unit/unit price), shipping fee, calculated total. Saving an order never records a payment.
 - **Record Money Movement** — pick one of the 4 cash-flow types; for a vendor receipt, choose **Order only / On-account only / Order + on-account** with a live before→after preview. Agent flows capture actual rate, agent's quoted rate, and an optional separate fee.
 - **Use Vendor Balance** — spend an existing held receipt: Apply to Order, Transfer to Vendor, Pay Supplier, or Refund, with a before→change→after preview.
-- **Ledger** — vendor held balances, agent running position (never netted across currency), and order paid/due — every number traces back to its source rows.
+- **Agent FX** — explicitly confirm that a specific agent funding paid for a specific agent payout, so the two-currency position can net to settled. Lists only the unconverted/unbacked remainder of each movement; rejects over-linking.
+- **Ledger** — vendor held balances, agent running position (never netted across currency unless confirmed via Agent FX), and order paid/due — every number traces back to its source rows.
 
 ## Deployment
 

@@ -1,5 +1,5 @@
 import { readRows, readRowsBatch } from "./sheets";
-import type { Application, Contact, MoneyMovement, Order, OrderItem, Role, Transfer } from "./schema";
+import type { Application, Contact, FxConversion, MoneyMovement, Order, OrderItem, Role, Transfer } from "./schema";
 
 const bool = (v: string) => v === "TRUE" || v === "true";
 const num = (v: string) => (v === "" ? 0 : Number(v));
@@ -97,6 +97,22 @@ const parseTransfers = (rows: Row[]): Transfer[] =>
     createdAt: r.createdAt,
   }));
 
+const parseFxConversions = (rows: Row[]): FxConversion[] =>
+  rows.filter((r) => r.id).map((r) => ({
+    id: r.id,
+    agentId: r.agentId,
+    fundingMovementId: r.fundingMovementId,
+    spendMovementId: r.spendMovementId,
+    fromCurrency: r.fromCurrency,
+    fromAmount: num(r.fromAmount),
+    toCurrency: r.toCurrency,
+    toAmount: num(r.toAmount),
+    note: r.note,
+    reversed: bool(r.reversed),
+    reversedReason: r.reversedReason,
+    createdAt: r.createdAt,
+  }));
+
 export async function getContacts(): Promise<Contact[]> {
   return parseContacts(await readRows("Contacts"));
 }
@@ -115,6 +131,9 @@ export async function getApplications(): Promise<Application[]> {
 export async function getTransfers(): Promise<Transfer[]> {
   return parseTransfers(await readRows("Transfers"));
 }
+export async function getFxConversions(): Promise<FxConversion[]> {
+  return parseFxConversions(await readRows("FX_Conversions"));
+}
 
 export interface AllData {
   contacts: Contact[];
@@ -123,13 +142,14 @@ export interface AllData {
   movements: MoneyMovement[];
   applications: Application[];
   transfers: Transfer[];
+  fxConversions: FxConversion[];
 }
 
 /** Everything a route needs, in ONE Sheets API call instead of up to six. Use this whenever
  *  a handler touches more than one tab — see lib/sheets.ts readRowsBatch for why it matters. */
 export async function getAllData(): Promise<AllData> {
-  const [contacts, orders, orderItems, movements, applications, transfers] = await readRowsBatch([
-    "Contacts", "Orders", "Order_Items", "Money_Movements", "Applications", "Transfers",
+  const [contacts, orders, orderItems, movements, applications, transfers, fxConversions] = await readRowsBatch([
+    "Contacts", "Orders", "Order_Items", "Money_Movements", "Applications", "Transfers", "FX_Conversions",
   ]);
   return {
     contacts: parseContacts(contacts),
@@ -138,5 +158,6 @@ export async function getAllData(): Promise<AllData> {
     movements: parseMovements(movements),
     applications: parseApplications(applications),
     transfers: parseTransfers(transfers),
+    fxConversions: parseFxConversions(fxConversions),
   };
 }

@@ -1,4 +1,4 @@
-import type { Application, Contact, MoneyMovement, Order, OrderItem, Transfer } from "./schema";
+import type { Application, Contact, FxConversion, MoneyMovement, Order, OrderItem, Transfer } from "./schema";
 
 export interface LedgerData {
   contacts: Contact[];
@@ -7,6 +7,7 @@ export interface LedgerData {
   movements: MoneyMovement[];
   applications: Application[];
   transfers: Transfer[];
+  fxConversions: FxConversion[];
 }
 
 export function orderTotal(order: Order, items: OrderItem[]): number {
@@ -81,8 +82,48 @@ export function vendorHeld(vendorId: string, currency: string, d: LedgerData): n
   return receivedIn + transfersIn - appliedOut - transfersOut;
 }
 
+/** How much of a CompanyToAgent funding movement is still unlinked to any FX conversion. */
+export function fundingRemaining(movementId: string, d: LedgerData): number {
+  const movement = d.movements.find((m) => m.id === movementId);
+  if (!movement) return 0;
+  const consumed = d.fxConversions
+    .filter((c) => c.fundingMovementId === movementId && !c.reversed)
+    .reduce((s, c) => s + c.fromAmount, 0);
+  return movement.amount - consumed;
+}
+
+/** How much of an AgentToVendor/AgentToCompany spend is still unbacked by any FX conversion
+ *  — i.e. still showing as "company owes" on the agent's position in that currency. */
+export function spendUnbacked(movementId: string, d: LedgerData): number {
+  const movement = d.movements.find((m) => m.id === movementId);
+  if (!movement) return 0;
+  const backed = d.fxConversions
+    .filter((c) => c.spendMovementId === movementId && !c.reversed)
+    .reduce((s, c) => s + c.toAmount, 0);
+  return movement.amount - backed;
+}
+
+/** Every CompanyToAgent funding for this agent with unconverted INR (or whatever currency) left. */
+export function agentOpenFundings(agentId: string, d: LedgerData) {
+  return d.movements
+    .filter((m) => !m.reversed && m.type === "CompanyToAgent" && m.payeeId === agentId)
+    .map((m) => ({ movement: m, remaining: fundingRemaining(m.id, d) }))
+    .filter((r) => r.remaining > 0.001);
+}
+
+/** Every AgentToVendor/AgentToCompany spend for this agent still showing as unbacked. */
+export function agentOpenSpends(agentId: string, d: LedgerData) {
+  return d.movements
+    .filter((m) => !m.reversed && (m.type === "AgentToVendor" || m.type === "AgentToCompany") && m.payerId === agentId)
+    .map((m) => ({ movement: m, remaining: spendUnbacked(m.id, d) }))
+    .filter((r) => r.remaining > 0.001);
+}
+
 /** Per-currency running position for an agent: positive = agent still holds company funding,
- *  negative = agent spent/returned more than funded, i.e. company owes the agent. */
+ *  negative = agent spent/returned more than funded, i.e. company owes the agent. An FX
+ *  conversion explicitly ties a funding to a spend across currencies: it consumes the
+ *  funding (reduces that currency's position) and backs the spend (restores the other
+ *  currency's position by the same confirmed amount) — nothing here is automatic. */
 export function agentPosition(agentId: string, d: LedgerData): Record<string, number> {
   const byCurrency: Record<string, number> = {};
   const add = (currency: string, delta: number) => {
@@ -93,6 +134,16 @@ export function agentPosition(agentId: string, d: LedgerData): Record<string, nu
     if (m.type === "CompanyToAgent" && m.payeeId === agentId) add(m.currency, m.amount);
     if (m.type === "AgentToVendor" && m.payerId === agentId) add(m.currency, -m.amount);
     if (m.type === "AgentToCompany" && m.payerId === agentId) add(m.currency, -m.amount);
+  }
+  for (const c of d.fxConversions) {
+    if (c.reversed || c.agentId !== agentId) continue;
+    // Defend against an orphaned conversion (its funding/spend row was cleared, e.g. by
+    // npm run clear:test-activity) still silently skewing the position.
+    const fundingExists = d.movements.some((m) => m.id === c.fundingMovementId);
+    const spendExists = d.movements.some((m) => m.id === c.spendMovementId);
+    if (!fundingExists || !spendExists) continue;
+    add(c.fromCurrency, -c.fromAmount);
+    add(c.toCurrency, c.toAmount);
   }
   return byCurrency;
 }

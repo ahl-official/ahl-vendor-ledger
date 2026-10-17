@@ -48,29 +48,35 @@ Save.
 ✅ **Ledger** → TEST Agent now shows **two separate lines**: `Holds INR 75000.00` *and*
 `Company owes RMB 4800.00`.
 
-### Why TEST Agent shows two lines, not one settled number — read this if it looks wrong
+### Why TEST Agent shows two lines, not one settled number
 
-This is the exact point you flagged. The app records the INR funding and the RMB
-payout as two **separate, independent events** — it never calculates one from the
-other, and it never nets INR against RMB. So after both steps:
+The app records the INR funding and the RMB payout as two **separate, independent
+events** — it never calculates one from the other, and never nets INR against RMB on
+its own. The `actualRate` / `quotedRate` fields from Step 1 are stored for audit only;
+nothing reads them to auto-settle the position. This is deliberate (CONTEXT.md: *"INR
+and RMB balances are never netted without an explicit FX deal"*) — until you've
+explicitly confirmed a conversion, the app won't assume one happened.
 
-- The **INR 75,000** funding is still sitting there, untouched on paper, because
-  nothing in the system ever told it "this INR became that RMB."
-- The **RMB 4,800** payout shows as "company owes" because, in isolation, the agent
-  spent RMB it was never directly funded in.
+### Step 3 — Confirm the conversion (new: **Agent FX** page)
 
-In reality these two numbers *are* connected (the INR funded the RMB payout), but V1
-has no explicit "FX conversion" event linking a funding to a payout — CONTEXT.md's
-rule is *"INR and RMB balances are never netted without an explicit FX deal,"* and V1
-never built that explicit FX deal step. The `actualRate` / `quotedRate` fields you
-entered in Step 1 are stored for audit (so you can see the spread later) but nothing
-reads them to auto-settle the INR side.
+Go to **Agent FX** in the nav.
+```
+Agent: TEST Agent
+Unconverted funding: 2026-10-17 — INR 75000.00 unconverted
+Unbacked spend: 2026-10-17 — RMB 4800.00 unbacked (paid TEST Vendor)
+From amount: 75000
+To amount: 4800
+Note: test conversion
+```
+Both dropdowns auto-fill the amounts with the full remaining balance — edit them down if
+you're only confirming a partial conversion. Save.
 
-**This is a real gap worth a decision, not a bug to silently "fix":** do you want V1
-to keep showing both currencies separately like this (safest — never assumes a
-conversion that wasn't explicitly confirmed), or should there be a way to mark "this
-INR funding was converted and spent via that RMB payout" so the agent's position
-nets to settled once both legs are recorded? Tell me which and I'll build it.
+✅ **Ledger** → TEST Agent now shows **Settled** — both the INR and RMB positions net to
+zero, because you explicitly confirmed this funding paid for that payout.
+
+Try linking the same funding again (or more than its remaining amount) — it's
+rejected with *"Only 0 of this funding is still unconverted."* Nothing lets you
+double-count a conversion.
 
 ---
 

@@ -37,6 +37,15 @@ export const SHEETS = {
     "amount", "currency", "receivingOrderId", "proofUrl", "note",
     "reversed", "reversedReason", "createdAt",
   ],
+  // Explicitly links an agent's INR funding (a CompanyToAgent movement) to the RMB (or
+  // other-currency) payout it paid for (an AgentToVendor/AgentToCompany movement). Never
+  // auto-created — the agent position stays two separate currency lines until someone
+  // confirms "this funding is what paid for that payout." See lib/ledger.ts agentPosition.
+  FX_Conversions: [
+    "id", "agentId", "fundingMovementId", "spendMovementId",
+    "fromCurrency", "fromAmount", "toCurrency", "toAmount",
+    "note", "reversed", "reversedReason", "createdAt",
+  ],
 } as const;
 
 export type SheetName = keyof typeof SHEETS;
@@ -93,4 +102,10 @@ export interface Transfer {
   purpose: TransferPurpose; amount: number; currency: string;
   receivingOrderId: string; proofUrl: string; note: string;
   reversed: boolean; reversedReason: string; createdAt: string;
+}
+
+export interface FxConversion {
+  id: string; agentId: string; fundingMovementId: string; spendMovementId: string;
+  fromCurrency: string; fromAmount: number; toCurrency: string; toAmount: number;
+  note: string; reversed: boolean; reversedReason: string; createdAt: string;
 }
