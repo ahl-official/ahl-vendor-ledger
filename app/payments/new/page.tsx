@@ -55,7 +55,7 @@ function RecordMovementContent() {
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
   const [editLoaded, setEditLoaded] = useState(!editId);
-  const [editVoided, setEditVoided] = useState(false);
+  const [originalAppliedAmount, setOriginalAppliedAmount] = useState(0);
 
   useEffect(() => {
     setDate(new Date().toISOString().slice(0, 10));
@@ -83,16 +83,13 @@ function RecordMovementContent() {
         if (m.paymentUse === "OrderOnly" || m.paymentUse === "OrderPlusOnAccount") {
           const ledger = await fetchJson<{ applications: Application[] }>("/api/ledger");
           const app = ledger.applications.find((a) => a.movementId === editId && a.active);
-          if (app) { setOrderId(app.orderId); setAppliedAmount(String(app.amount)); }
+          if (app) {
+            setOrderId(app.orderId);
+            setAppliedAmount(String(app.amount));
+            setOriginalAppliedAmount(app.amount);
+          }
         }
 
-        // Void only after the form is safely prefilled, so a fetch failure above never
-        // voids an entry with nothing ready to replace it.
-        await fetch(`/api/movements/${editId}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
-        });
-        setEditVoided(true);
         setEditLoaded(true);
       })
       .catch((e) => { setError(e.message); setEditLoaded(true); });
@@ -102,8 +99,8 @@ function RecordMovementContent() {
   const isVendorReceipt = type === "AgentToVendor";
   const byRole = (role: string) => contacts.filter((c) => c.roles.includes(role as any));
   const vendorOrders = useMemo(
-    () => orders.filter((o) => o.vendorId === payeeId && o.currency === currency && o.due > 0.01),
-    [orders, payeeId, currency]
+    () => orders.filter((o) => o.vendorId === payeeId && o.currency === currency && (o.due > 0.01 || o.id === orderId)),
+    [orders, payeeId, currency, orderId]
   );
   const selectedOrder = vendorOrders.find((o) => o.id === orderId);
 
@@ -111,21 +108,38 @@ function RecordMovementContent() {
     e.preventDefault();
     setError("");
     setSaving(true);
-    const res = await fetch("/api/movements", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type, payerId, payeeId, amount: Number(amount), currency, date,
-        actualRate: actualRate || null, quotedRate: quotedRate || null, agentFee: agentFee || null,
-        method, reference, note,
-        paymentUse: isVendorReceipt ? paymentUse : "",
-        orderId: paymentUse === "OnAccountOnly" ? "" : orderId,
-        appliedAmount: paymentUse === "OnAccountOnly" ? 0 : Number(appliedAmount || 0),
-      }),
-    });
-    setSaving(false);
-    if (!res.ok) return setError((await res.json()).error ?? "Failed to save");
-    setDone(true);
+    try {
+      if (editId) {
+        // Remove previous entry right before saving the corrected one
+        const delRes = await fetch(`/api/movements/${editId}`, { method: "DELETE" });
+        if (!delRes.ok) {
+          const delData = await delRes.json().catch(() => ({}));
+          throw new Error(delData.error || "Failed to update previous entry");
+        }
+      }
+
+      const res = await fetch("/api/movements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type, payerId, payeeId, amount: Number(amount), currency, date,
+          actualRate: actualRate || null, quotedRate: quotedRate || null, agentFee: agentFee || null,
+          method, reference, note,
+          paymentUse: isVendorReceipt ? paymentUse : "",
+          orderId: paymentUse === "OnAccountOnly" ? "" : orderId,
+          appliedAmount: paymentUse === "OnAccountOnly" ? 0 : Number(appliedAmount || 0),
+        }),
+      });
+      if (!res.ok) {
+        const resData = await res.json().catch(() => ({}));
+        throw new Error(resData.error ?? "Failed to save");
+      }
+      setSaving(false);
+      setDone(true);
+    } catch (err: unknown) {
+      setSaving(false);
+      setError(err instanceof Error ? err.message : "Failed to save");
+    }
   };
 
   if (done) {
@@ -144,10 +158,15 @@ function RecordMovementContent() {
   return (
     <div>
       <h1 style={{ marginBottom: 24 }}>{editId ? "Edit Money Movement" : "Record Money Movement"}</h1>
-      {editId && editVoided && (
-        <p className="badge hold" style={{ marginBottom: 16, display: "inline-block" }}>
-          Editing — the original entry is now voided (visible, struck-through, on the Ledger). Save below to record its replacement.
-        </p>
+      {editId && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <span className="badge" style={{ background: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" }}>
+            Editing Entry {editId}
+          </span>
+          <span className="muted" style={{ fontSize: 13 }}>
+            Changes will only be applied when you click &quot;Save correction&quot;. Leaving this page leaves the original entry untouched.
+          </span>
+        </div>
       )}
       <form onSubmit={submit} className="card grid" style={{ gap: 16, maxWidth: 640 }}>
         <div>
@@ -219,7 +238,14 @@ function RecordMovementContent() {
                     if (paymentUse === "OrderOnly" && o) setAppliedAmount(String(Math.min(o.due, Number(amount) || o.due)));
                   }} required>
                     <option value="">Select...</option>
-                    {vendorOrders.map((o) => <option key={o.id} value={o.id}>{o.invoiceRef || o.id} — due {o.due.toFixed(2)}</option>)}
+                    {vendorOrders.map((o) => {
+                      const displayDue = o.id === orderId ? o.due + originalAppliedAmount : o.due;
+                      return (
+                        <option key={o.id} value={o.id}>
+                          {o.invoiceRef || o.id} — due {displayDue.toFixed(2)}
+                        </option>
+                      );
+                    })}
                     {editId && orderId && !vendorOrders.some((o) => o.id === orderId) && (
                       <option value={orderId}>(previously selected order)</option>
                     )}
@@ -243,7 +269,7 @@ function RecordMovementContent() {
               {paymentUse === "OrderOnly" && ` → all applied to order`}
               {paymentUse === "OnAccountOnly" && ` → all held on account`}
               {paymentUse === "OrderPlusOnAccount" && ` → ${(Number(appliedAmount) || 0).toFixed(2)} to order, ${((Number(amount) || 0) - (Number(appliedAmount) || 0)).toFixed(2)} held`}
-              {selectedOrder && (paymentUse === "OrderOnly" || paymentUse === "OrderPlusOnAccount") && ` (order due was ${selectedOrder.due.toFixed(2)})`}
+              {selectedOrder && (paymentUse === "OrderOnly" || paymentUse === "OrderPlusOnAccount") && ` (order due was ${(selectedOrder.due + (selectedOrder.id === orderId ? originalAppliedAmount : 0)).toFixed(2)})`}
             </p>
           </div>
         )}
@@ -275,9 +301,21 @@ function RecordMovementContent() {
         <div><label>Note / proof link</label><input value={note} onChange={(e) => setNote(e.target.value)} /></div>
 
         {error && <p className="error-text">{error}</p>}
-        <button type="submit" disabled={saving} style={{ justifySelf: "start" }}>
-          {saving ? "Saving..." : editId ? "Save correction" : "Save money movement"}
-        </button>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <button type="submit" disabled={saving}>
+            {saving ? "Saving..." : editId ? "Save correction" : "Save money movement"}
+          </button>
+          {editId && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => router.push("/ledger")}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );

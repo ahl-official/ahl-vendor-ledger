@@ -37,7 +37,6 @@ function AgentFxContent() {
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
   const [editLoaded, setEditLoaded] = useState(!editId);
-  const [editVoided, setEditVoided] = useState(false);
 
   useEffect(() => {
     fetchJson<{ agents: AgentLedger[] }>("/api/ledger").then((d) => setAgents(d.agents)).catch((e) => setError(e.message));
@@ -56,11 +55,6 @@ function AgentFxContent() {
     if (!editId) return;
     fetchJson<FxConversion>(`/api/fx-conversions/${editId}`)
       .then(async (c) => {
-        await fetch(`/api/fx-conversions/${editId}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
-        });
-        setEditVoided(true);
         setAgentId(c.agentId);
         const d = await fetchJson<{ openFundings: Open[]; openSpends: Open[] }>(`/api/fx-conversions?agentId=${c.agentId}`);
         setOpenFundings(d.openFundings); setOpenSpends(d.openSpends);
@@ -93,14 +87,27 @@ function AgentFxContent() {
     const to = Number(toAmount);
     if (!from || from <= 0 || !to || to <= 0) return setError("Both amounts must be greater than 0");
     setSaving(true);
-    const res = await fetch("/api/fx-conversions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId, fundingMovementId, spendMovementId, fromAmount: from, toAmount: to, note }),
-    });
-    setSaving(false);
-    if (!res.ok) return setError((await res.json()).error ?? "Failed to save");
-    setDone(true);
+    try {
+      if (editId) {
+        const delRes = await fetch(`/api/fx-conversions/${editId}`, { method: "DELETE" });
+        if (!delRes.ok) {
+          const dErr = await delRes.json().catch(() => ({}));
+          throw new Error(dErr.error || "Failed to update previous entry");
+        }
+      }
+
+      const res = await fetch("/api/fx-conversions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId, fundingMovementId, spendMovementId, fromAmount: from, toAmount: to, note }),
+      });
+      setSaving(false);
+      if (!res.ok) return setError((await res.json()).error ?? "Failed to save");
+      setDone(true);
+    } catch (err: unknown) {
+      setSaving(false);
+      setError(err instanceof Error ? err.message : "Failed to save");
+    }
   };
 
   if (done) {
@@ -130,10 +137,15 @@ function AgentFxContent() {
         even if it&apos;s more or less. Until you link them here, the agent&apos;s position shows both
         currencies separately on the Ledger.
       </p>
-      {editId && editVoided && (
-        <p className="badge hold" style={{ marginBottom: 16, display: "inline-block" }}>
-          Editing — the original link is now voided (visible on the Ledger). Save below to record its replacement.
-        </p>
+      {editId && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <span className="badge" style={{ background: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" }}>
+            Editing Entry {editId}
+          </span>
+          <span className="muted" style={{ fontSize: 13 }}>
+            Changes will only be applied when you click &quot;Save correction&quot;. Leaving this page leaves the original entry untouched.
+          </span>
+        </div>
       )}
 
       <form onSubmit={submit} className="card grid" style={{ gap: 16, maxWidth: 640 }}>
@@ -226,9 +238,21 @@ function AgentFxContent() {
         <div><label>Note</label><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. WeChat transfer screenshot ref" /></div>
 
         {error && <p className="error-text">{error}</p>}
-        <button type="submit" disabled={saving} style={{ justifySelf: "start" }}>
-          {saving ? "Saving..." : editId ? "Save correction" : "Link conversion"}
-        </button>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <button type="submit" disabled={saving}>
+            {saving ? "Saving..." : editId ? "Save correction" : "Link conversion"}
+          </button>
+          {editId && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => router.push("/ledger")}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );

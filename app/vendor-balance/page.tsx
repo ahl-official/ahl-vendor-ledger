@@ -45,7 +45,10 @@ function VendorBalanceContent() {
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
   const [editLoaded, setEditLoaded] = useState(!editId);
-  const [editVoided, setEditVoided] = useState(false);
+  const [originalEditAmount, setOriginalEditAmount] = useState(0);
+  const [originalEditOrderId, setOriginalEditOrderId] = useState("");
+  const [originalEditVendorId, setOriginalEditVendorId] = useState("");
+  const [originalEditCurrency, setOriginalEditCurrency] = useState("");
 
   const load = () => {
     fetchJson<{ vendors: VendorLedger[] }>("/api/ledger")
@@ -69,40 +72,38 @@ function VendorBalanceContent() {
           const t = d.transfers.find((x) => x.id === editId);
           if (!t) throw new Error("That entry could not be found — it may already be edited elsewhere.");
           setVendorId(t.fromVendorId);
+          setOriginalEditVendorId(t.fromVendorId);
           setCurrency(t.currency);
+          setOriginalEditCurrency(t.currency);
           setAction(t.purpose);
           setToContactId(t.toContactId);
           setAmount(String(t.amount));
+          setOriginalEditAmount(t.amount);
           setNote(t.note);
           if (t.purpose === "Transfer") {
             if (t.receivingOrderId) {
               setPaymentUse("OrderOnly");
               setOrderId(t.receivingOrderId);
+              setOriginalEditOrderId(t.receivingOrderId);
             } else setPaymentUse("OnAccountOnly");
           }
-          await fetch(`/api/transfers/${editId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
-          });
         } else {
           const a = d.applications.find((x) => x.id === editId);
           if (!a) throw new Error("That entry could not be found — it may already be edited elsewhere.");
           const movement = d.movements.find((m) => m.id === a.movementId);
-          setVendorId(movement?.payeeId ?? "");
-          setCurrency(movement?.currency ?? "RMB");
+          const vId = movement?.payeeId ?? "";
+          const curr = movement?.currency ?? "RMB";
+          setVendorId(vId);
+          setOriginalEditVendorId(vId);
+          setCurrency(curr);
+          setOriginalEditCurrency(curr);
           setAction("apply");
           setOrderId(a.orderId);
+          setOriginalEditOrderId(a.orderId);
           setAmount(String(a.amount));
-          await fetch(`/api/applications/${editId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
-          });
+          setOriginalEditAmount(a.amount);
         }
-        setEditVoided(true);
         setEditLoaded(true);
-        load();
       })
       .catch((e) => {
         setError(e.message);
@@ -127,7 +128,9 @@ function VendorBalanceContent() {
     }
   }, [vendor, currency]);
 
-  const totalHeld = vendor?.held[currency] ?? 0;
+  const totalHeld =
+    (vendor?.held[currency] ?? 0) +
+    (editId && vendorId === originalEditVendorId && currency === originalEditCurrency ? originalEditAmount : 0);
 
   const recipients =
     action === "Transfer"
@@ -144,9 +147,9 @@ function VendorBalanceContent() {
         (o) =>
           o.vendorId === (action === "apply" ? vendorId : toContactId) &&
           o.currency === currency &&
-          o.due > 0.01
+          (o.due > 0.01 || o.id === orderId)
       ),
-    [orders, vendorId, toContactId, action, currency]
+    [orders, vendorId, toContactId, action, currency, orderId]
   );
 
   const isTransferSplit = action === "Transfer" && toContactId;
@@ -166,32 +169,49 @@ function VendorBalanceContent() {
     }
 
     setSaving(true);
-    const res =
-      action === "apply"
-        ? await fetch("/api/applications", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ vendorId, orderId, amount: amt }),
-          })
-        : await fetch("/api/transfers", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              fromVendorId: vendorId,
-              purpose: action,
-              toContactId,
-              amount: amt,
-              currency,
-              paymentUse: isTransferSplit ? paymentUse : undefined,
-              receivingOrderId: isTransferSplit ? (paymentUse === "OnAccountOnly" ? "" : orderId) : orderId,
-              appliedAmount: isTransferSplit ? Number(effectiveApplied || 0) : undefined,
-              note,
-            }),
-          });
-    setSaving(false);
-    if (!res.ok) return setError((await res.json()).error ?? "Failed to save");
-    setDone(true);
-    load();
+    try {
+      if (editId) {
+        const delUrl = editKind === "transfer" ? `/api/transfers/${editId}` : `/api/applications/${editId}`;
+        const delRes = await fetch(delUrl, { method: "DELETE" });
+        if (!delRes.ok) {
+          const dErr = await delRes.json().catch(() => ({}));
+          throw new Error(dErr.error || "Failed to update previous entry");
+        }
+      }
+
+      const res =
+        action === "apply"
+          ? await fetch("/api/applications", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ vendorId, orderId, amount: amt }),
+            })
+          : await fetch("/api/transfers", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                fromVendorId: vendorId,
+                purpose: action,
+                toContactId,
+                amount: amt,
+                currency,
+                paymentUse: isTransferSplit ? paymentUse : undefined,
+                receivingOrderId: isTransferSplit ? (paymentUse === "OnAccountOnly" ? "" : orderId) : orderId,
+                appliedAmount: isTransferSplit ? Number(effectiveApplied || 0) : undefined,
+                note,
+              }),
+            });
+      setSaving(false);
+      if (!res.ok) {
+        const rErr = await res.json().catch(() => ({}));
+        throw new Error(rErr.error ?? "Failed to save");
+      }
+      setDone(true);
+      load();
+    } catch (err: unknown) {
+      setSaving(false);
+      setError(err instanceof Error ? err.message : "Failed to save");
+    }
   };
 
   if (done) {
@@ -223,10 +243,15 @@ function VendorBalanceContent() {
       <h1 style={{ marginBottom: 24 }}>
         {editId ? "Edit Vendor Balance Entry" : "Use Vendor Balance"}
       </h1>
-      {editId && editVoided && (
-        <p className="badge hold" style={{ marginBottom: 16, display: "inline-block" }}>
-          Editing — the original entry is now voided (visible, struck-through, on the Ledger). Save below to record its replacement.
-        </p>
+      {editId && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <span className="badge" style={{ background: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" }}>
+            Editing Entry {editId}
+          </span>
+          <span className="muted" style={{ fontSize: 13 }}>
+            Changes will only be applied when you click &quot;Save correction&quot;. Leaving this page leaves the original entry untouched.
+          </span>
+        </div>
       )}
       <form onSubmit={submit} className="card grid" style={{ gap: 16, maxWidth: 640 }}>
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -335,11 +360,14 @@ function VendorBalanceContent() {
             <label>Order to apply toward ({currency} only, due &gt; 0)</label>
             <select value={orderId} onChange={(e) => setOrderId(e.target.value)} required disabled={!vendor}>
               <option value="">Select...</option>
-              {targetOrders.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.invoiceRef || o.id} — due {currency} {o.due.toFixed(2)}
-                </option>
-              ))}
+              {targetOrders.map((o) => {
+                const displayDue = o.due + (o.id === originalEditOrderId ? originalEditAmount : 0);
+                return (
+                  <option key={o.id} value={o.id}>
+                    {o.invoiceRef || o.id} — due {currency} {displayDue.toFixed(2)}
+                  </option>
+                );
+              })}
               {editId && orderId && !targetOrders.some((o) => o.id === orderId) && (
                 <option value={orderId}>(previously selected order)</option>
               )}
@@ -395,11 +423,14 @@ function VendorBalanceContent() {
                     required
                   >
                     <option value="">Select...</option>
-                    {targetOrders.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.invoiceRef || o.id} — due {o.due.toFixed(2)}
-                      </option>
-                    ))}
+                    {targetOrders.map((o) => {
+                      const displayDue = o.due + (o.id === originalEditOrderId ? originalEditAmount : 0);
+                      return (
+                        <option key={o.id} value={o.id}>
+                          {o.invoiceRef || o.id} — due {displayDue.toFixed(2)}
+                        </option>
+                      );
+                    })}
                     {editId && orderId && !targetOrders.some((o) => o.id === orderId) && (
                       <option value={orderId}>(previously selected order)</option>
                     )}
@@ -445,9 +476,21 @@ function VendorBalanceContent() {
         )}
 
         {error && <p className="error-text">{error}</p>}
-        <button type="submit" disabled={saving || !vendor || totalHeld <= 0} style={{ justifySelf: "start" }}>
-          {saving ? "Saving..." : editId ? "Save correction" : "Save"}
-        </button>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <button type="submit" disabled={saving || !vendor || totalHeld <= 0}>
+            {saving ? "Saving..." : editId ? "Save correction" : "Save"}
+          </button>
+          {editId && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => router.push("/ledger")}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );
