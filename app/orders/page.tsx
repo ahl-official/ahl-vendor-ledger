@@ -23,6 +23,20 @@ export default function OrdersPage() {
   const [actionError, setActionError] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // Quick Credit Note state
+  const [showCnModal, setShowCnModal] = useState(false);
+  const [cnOrderId, setCnOrderId] = useState("");
+  const [cnDate, setCnDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cnAmount, setCnAmount] = useState("");
+  const [cnReason, setCnReason] = useState("");
+  const [cnSaving, setCnSaving] = useState(false);
+
+  const reloadOrders = () => {
+    fetchJson<OrderRow[]>("/api/orders")
+      .then(setOrders)
+      .catch((e) => setLoadError(e.message));
+  };
+
   useEffect(() => {
     Promise.all([fetchJson<OrderRow[]>("/api/orders"), fetchJson<Contact[]>("/api/contacts")])
       .then(([o, c]) => {
@@ -34,6 +48,44 @@ export default function OrdersPage() {
   }, []);
 
   const vendorName = (id: string) => contacts.find((c) => c.id === id)?.name ?? id;
+
+  const handleSaveCreditNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cnOrderId) {
+      setActionError("Please select an order for this credit note");
+      return;
+    }
+    const amt = Number(cnAmount);
+    if (!amt || amt <= 0) {
+      setActionError("Please enter a valid credit amount");
+      return;
+    }
+    setCnSaving(true);
+    setActionError("");
+    try {
+      const res = await fetch("/api/credit-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: cnOrderId,
+          amount: amt,
+          date: cnDate,
+          reason: cnReason.trim() || "Order return / credit",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to save credit note");
+      setShowCnModal(false);
+      setCnOrderId("");
+      setCnAmount("");
+      setCnReason("");
+      reloadOrders();
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Failed to save credit note");
+    } finally {
+      setCnSaving(false);
+    }
+  };
 
   const handleDelete = async (order: OrderRow) => {
     const label = order.invoiceRef ? `Invoice "${order.invoiceRef}"` : `Order "${order.id}"`;
@@ -62,13 +114,102 @@ export default function OrdersPage() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <h1>Orders</h1>
-        <Link href="/orders/new" className="btn">+ New Order</Link>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            className="btn"
+            style={{ background: "#059669", borderColor: "#059669", color: "#fff" }}
+            onClick={() => {
+              setShowCnModal(true);
+              setActionError("");
+            }}
+          >
+            + Issue Credit Note
+          </button>
+          <Link href="/orders/new" className="btn">+ New Order</Link>
+        </div>
       </div>
 
       {actionError && (
         <div className="card" style={{ background: "var(--err-bg)", borderColor: "var(--err-border)", marginBottom: 16 }}>
           <p className="error-text" style={{ margin: 0 }}>{actionError}</p>
         </div>
+      )}
+
+      {showCnModal && (
+        <form onSubmit={handleSaveCreditNote} className="card" style={{ marginBottom: 20, borderLeft: "4px solid #059669" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <h2 style={{ margin: 0, fontSize: 18 }}>Issue Credit Note / Order Return</h2>
+            <span className="badge ok">Credits back to Vendor Held Balance</span>
+          </div>
+          <p className="muted" style={{ marginTop: 0, marginBottom: 16, fontSize: 13 }}>
+            Use this when an order was unsatisfactory or returned. The vendor credits this amount directly back to your held balance for future purchases, reducing the net cost of the selected order.
+          </p>
+          <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr 2fr auto", gap: 12, alignItems: "end" }}>
+            <div>
+              <label className="field-label">Select Order</label>
+              <select
+                required
+                value={cnOrderId}
+                onChange={(e) => setCnOrderId(e.target.value)}
+              >
+                <option value="">-- Choose Order --</option>
+                {orders.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {vendorName(o.vendorId)} · Inv: {o.invoiceRef || o.id} ({o.date}) — {o.currency} {o.total.toFixed(2)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="field-label">Date</label>
+              <input
+                type="date"
+                required
+                value={cnDate}
+                onChange={(e) => setCnDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="field-label">
+                Credit Amount {cnOrderId ? `(${orders.find((o) => o.id === cnOrderId)?.currency ?? "RMB"})` : ""}
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                required
+                placeholder="e.g. 800.00"
+                value={cnAmount}
+                onChange={(e) => setCnAmount(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="field-label">Reason / Return Details</label>
+              <input
+                type="text"
+                placeholder="e.g. 2 pcs defective / vendor agreed RMB 800 credit"
+                value={cnReason}
+                onChange={(e) => setCnReason(e.target.value)}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="submit" className="btn" disabled={cnSaving}>
+                {cnSaving ? "Saving..." : "Credit Vendor"}
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => {
+                  setShowCnModal(false);
+                  setCnOrderId("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </form>
       )}
 
       {loading ? (
@@ -120,6 +261,24 @@ export default function OrdersPage() {
                     style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
                     onClick={(e) => e.stopPropagation()}
                   >
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Issue credit note / order return"
+                      aria-label={`Issue credit note for order ${o.invoiceRef || o.id}`}
+                      style={{ color: "#059669" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCnOrderId(o.id);
+                        setShowCnModal(true);
+                        setActionError("");
+                      }}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 14 4 9 9 4" />
+                        <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                      </svg>
+                    </button>
                     <button
                       type="button"
                       className="icon-btn edit-btn"
