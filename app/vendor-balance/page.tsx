@@ -171,11 +171,16 @@ function VendorBalanceContent() {
     setSaving(true);
     try {
       if (editId) {
-        const delUrl = editKind === "transfer" ? `/api/transfers/${editId}` : `/api/applications/${editId}`;
-        const delRes = await fetch(delUrl, { method: "DELETE" });
-        if (!delRes.ok) {
-          const dErr = await delRes.json().catch(() => ({}));
-          throw new Error(dErr.error || "Failed to update previous entry");
+        // Void the previous entry -- never delete it. It stays visible (struck-through)
+        // in the Ledger as history; see docs/ARCHITECTURE.md rule 1.
+        const voidUrl = editKind === "transfer" ? `/api/transfers/${editId}` : `/api/applications/${editId}`;
+        const voidRes = await fetch(voidUrl, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
+        });
+        if (!voidRes.ok) {
+          const vErr = await voidRes.json().catch(() => ({}));
+          throw new Error(vErr.error || "Failed to update previous entry");
         }
       }
 

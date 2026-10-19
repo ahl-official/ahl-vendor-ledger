@@ -90,29 +90,6 @@ export default function LedgerPage() {
   );
   const selected = contacts.find((c) => c.id === selectedId);
 
-  const agentRmbBalance = (agentId: string) => {
-    let bal = 0;
-    for (const m of movements) {
-      if (m.reversed) continue;
-      const rate = m.quotedRate ?? m.actualRate;
-      if (m.type === "CompanyToAgent" && m.payeeId === agentId) {
-        if (m.currency === "RMB") bal += m.amount;
-        else if (rate && rate > 0) bal += rate > 1 ? m.amount / rate : m.amount * rate;
-        else {
-          const conv = fxConversions.find((c) => c.fundingMovementId === m.id && !c.reversed);
-          if (conv) bal += conv.toAmount;
-        }
-      } else if (m.type === "AgentToVendor" && m.payerId === agentId) {
-        if (m.currency === "RMB") bal -= m.amount;
-        else if (rate && rate > 0) bal -= rate > 1 ? m.amount / rate : m.amount * rate;
-      } else if (m.type === "AgentToCompany" && m.payerId === agentId) {
-        if (m.currency === "RMB") bal -= m.amount;
-        else if (rate && rate > 0) bal -= rate > 1 ? m.amount / rate : m.amount * rate;
-      }
-    }
-    return bal;
-  };
-
   const proofById = useMemo(
     () => new Map([...movements, ...transfers].filter((x) => x.proofUrl).map((x) => [x.id, x.proofUrl])),
     [movements, transfers]
@@ -406,8 +383,11 @@ export default function LedgerPage() {
     return byCurrency;
   }, [roleFilter, events]);
 
+  // Voids the row -- never deletes it. Financial rows are append-only (see
+  // docs/ARCHITECTURE.md rule 1): the entry stays visible, struck-through, with a
+  // "Corrected"/"Voided" badge, instead of vanishing with no trace.
   const handleDeleteTransaction = async (e: Event) => {
-    if (!window.confirm(`Are you sure you want to delete this transaction "${e.label}"?\nThis action cannot be undone.`)) {
+    if (!window.confirm(`Void this transaction "${e.label}"?\n\nIt will stay visible (struck-through) in the history for audit purposes -- it is not permanently deleted.`)) {
       return;
     }
     setDeletingId(e.id);
@@ -421,14 +401,18 @@ export default function LedgerPage() {
           : e.kind === "credit_note"
           ? `/api/credit-notes/${e.id}`
           : `/api/applications/${e.id}`;
-      const res = await fetch(endpoint, { method: "DELETE" });
+      const res = await fetch(endpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Voided from Ledger" }),
+      });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error ?? "Failed to delete transaction");
+        throw new Error(data.error ?? "Failed to void transaction");
       }
       loadLedger();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to delete transaction";
+      const msg = err instanceof Error ? err.message : "Failed to void transaction";
       setActionError(msg);
     } finally {
       setDeletingId(null);
@@ -613,8 +597,8 @@ export default function LedgerPage() {
                           <button
                             type="button"
                             className="icon-btn delete-btn"
-                            title="Delete transaction"
-                            aria-label="Delete transaction"
+                            title="Void transaction (stays visible, struck-through)"
+                            aria-label="Void transaction"
                             disabled={deletingId === e.id}
                             onClick={() => handleDeleteTransaction(e)}
                           >
@@ -706,8 +690,8 @@ export default function LedgerPage() {
                           <button
                             type="button"
                             className="icon-btn delete-btn"
-                            title="Delete transaction"
-                            aria-label="Delete transaction"
+                            title="Void transaction (stays visible, struck-through)"
+                            aria-label="Void transaction"
                             disabled={deletingId === e.id}
                             onClick={() => handleDeleteTransaction(e)}
                           >
@@ -762,8 +746,8 @@ export default function LedgerPage() {
                           <button
                             type="button"
                             className="icon-btn delete-btn"
-                            title="Delete transaction"
-                            aria-label="Delete transaction"
+                            title="Void transaction (stays visible, struck-through)"
+                            aria-label="Void transaction"
                             disabled={deletingId === e.id}
                             onClick={() => handleDeleteTransaction(e)}
                           >
@@ -803,21 +787,25 @@ export default function LedgerPage() {
           </div>
 
           <h2 style={{ marginBottom: 12 }}>Agents — running position</h2>
-          <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>Current status reflecting the latest transaction.</p>
+          <p className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
+            Positive = agent still holds company funding. Negative = company owes the agent. Shown
+            per currency, never netted — link a funding to a payout on the <strong>Agent FX</strong> page
+            to settle them against each other.
+          </p>
           <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: 32 }}>
             {agents.map((a) => {
-              const rmbBal = agentRmbBalance(a.id);
+              const pos = Object.entries(a.position).filter(([, amt]) => Math.abs(amt) > 0.01);
               return (
                 <div key={a.id} className="card clickable" role="button" tabIndex={0} onClick={() => openLedger("Agent", a.id)} onKeyDown={(e) => e.key === "Enter" && openLedger("Agent", a.id)}>
                   <strong>{a.name}</strong>
                   <div style={{ marginTop: 8 }}>
-                    <div className={`badge ${rmbBal > 0.001 ? "hold" : rmbBal < -0.001 ? "err" : "ok"}`}>
-                      {rmbBal > 0.001
-                        ? `Agent holds: RMB ${rmbBal.toFixed(2)}`
-                        : rmbBal < -0.001
-                        ? `Company owes: RMB ${Math.abs(rmbBal).toFixed(2)}`
-                        : "Settled (RMB 0.00)"}
-                    </div>
+                    {pos.length
+                      ? pos.map(([c, amt]) => (
+                          <div key={c} className={`badge ${amt >= 0 ? "info" : "err"}`} style={{ marginRight: 6, marginBottom: 4 }}>
+                            {amt >= 0 ? `Holds ${c} ${amt.toFixed(2)}` : `Company owes ${c} ${Math.abs(amt).toFixed(2)}`}
+                          </div>
+                        ))
+                      : <span className="muted">Settled</span>}
                   </div>
                 </div>
               );

@@ -1,10 +1,10 @@
 // Wipes every transactional row (orders, items, movements, applications, transfers, fx
-// conversions) from the live Sheet — everything currently in those tabs is test data from
-// development. Contacts are left alone (real vendor/agent/supplier directory stays).
+// conversions, credit notes) from the live Sheet — everything currently in those tabs is
+// test data from development. Contacts (and Custom_Options) are left alone.
 // Run with: npm run clear:test-activity
 import { clearRows } from "../lib/sheets.ts";
 
-const TABS = ["Orders", "Order_Items", "Money_Movements", "Applications", "Transfers", "FX_Conversions"] as const;
+const TABS = ["Orders", "Order_Items", "Money_Movements", "Applications", "Transfers", "FX_Conversions", "Credit_Notes"] as const;
 
 async function main() {
   for (const tab of TABS) {

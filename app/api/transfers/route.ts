@@ -92,6 +92,21 @@ export const POST = withErrors(async (req: Request) => {
     return NextResponse.json({ error: `Vendor has no open balance in ${currency}` }, { status: 400 });
   }
 
+  // vendorHeld() (checked above) includes money that arrived via a vendor-to-vendor
+  // Transfer-in or a Credit Note, which have no movementId of their own and so are
+  // invisible to vendorOpenReceipts() below -- only original AgentToVendor receipts can
+  // actually be drawn from here. Without this check, a vendor whose held balance is
+  // partly non-receipt money could pass the totalHeld check above but the FIFO loop
+  // below would run out of receipts partway through, silently creating Transfer rows
+  // that sum to LESS than the requested amount while still reporting success. Fail
+  // loudly instead, before writing anything.
+  const receiptsAvailable = openReceipts.reduce((s, r) => s + r.remaining, 0);
+  if (amount - receiptsAvailable > 0.01) {
+    return NextResponse.json({
+      error: `Only ${currency} ${receiptsAvailable.toFixed(2)} of the ${currency} ${totalHeld.toFixed(2)} total held is available to spend this way — the rest arrived via a vendor-to-vendor transfer or credit note, which can't be re-spent through this screen yet.`,
+    }, { status: 400 });
+  }
+
   let remainingNeeded = amount;
   let remainingAppliedNeeded = appliedAmount;
   const ids: string[] = [];

@@ -183,10 +183,13 @@ function OrderDetailContent() {
     }
   };
 
+  // Reverses (voids) the credit note -- never deletes it. See docs/ARCHITECTURE.md rule 1:
+  // this credit note already affected the vendor's held balance and the order's net cost,
+  // so it must stay visible as history, not vanish with no trace.
   const handleDeleteCreditNote = async (cn: CreditNoteItem) => {
     if (
       !window.confirm(
-        `Are you sure you want to delete this credit note of ${cn.currency} ${cn.amount.toFixed(2)}?\n\nThis will remove the credit from ${order?.vendorName || "the vendor"}'s held balance and restore the order's net cost.`
+        `Reverse this credit note of ${cn.currency} ${cn.amount.toFixed(2)}?\n\nThis will remove the credit from ${order?.vendorName || "the vendor"}'s held balance and restore the order's net cost. The original credit note stays visible in history, struck-through, for audit purposes.`
       )
     ) {
       return;
@@ -195,12 +198,16 @@ function OrderDetailContent() {
     setCnDeletingId(cn.id);
     setActionError("");
     try {
-      const res = await fetch(`/api/credit-notes/${cn.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/credit-notes/${cn.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Reversed from order page" }),
+      });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to delete credit note");
+      if (!res.ok) throw new Error(data.error ?? "Failed to reverse credit note");
       loadOrder();
     } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : "Failed to delete credit note");
+      setActionError(err instanceof Error ? err.message : "Failed to reverse credit note");
     } finally {
       setCnDeletingId(null);
     }
@@ -445,7 +452,7 @@ function OrderDetailContent() {
                       disabled={cnDeletingId === cn.id}
                       onClick={() => handleDeleteCreditNote(cn)}
                     >
-                      {cnDeletingId === cn.id ? "Deleting..." : "Delete / Reverse"}
+                      {cnDeletingId === cn.id ? "Reversing..." : "Reverse"}
                     </button>
                   </td>
                 </tr>

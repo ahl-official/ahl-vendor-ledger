@@ -113,11 +113,16 @@ function RecordMovementContent() {
     setSaving(true);
     try {
       if (editId) {
-        // Remove previous entry right before saving the corrected one
-        const delRes = await fetch(`/api/movements/${editId}`, { method: "DELETE" });
-        if (!delRes.ok) {
-          const delData = await delRes.json().catch(() => ({}));
-          throw new Error(delData.error || "Failed to update previous entry");
+        // Void the previous entry right before saving the corrected one -- never delete it.
+        // It stays visible (struck-through) in the Ledger as history; see
+        // docs/ARCHITECTURE.md rule 1.
+        const voidRes = await fetch(`/api/movements/${editId}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
+        });
+        if (!voidRes.ok) {
+          const voidData = await voidRes.json().catch(() => ({}));
+          throw new Error(voidData.error || "Failed to update previous entry");
         }
       }
 

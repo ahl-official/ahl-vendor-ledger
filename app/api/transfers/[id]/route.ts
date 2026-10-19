@@ -1,17 +1,13 @@
 import { NextResponse } from "next/server";
-import { deleteRowsByField, updateRow } from "@/lib/sheets";
+import { updateRow } from "@/lib/sheets";
 import { withErrors } from "@/lib/api";
 
+// Voids a transfer/pay-supplier/refund row -- never deletes it. This is the ONLY
+// correction path; see docs/ARCHITECTURE.md rule 1 for why DELETE was removed from here.
 export const PATCH = withErrors(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const body = await req.json();
   const reason = String(body.reason ?? "Edited");
   await updateRow("Transfers", id, { reversed: true, reversedReason: reason });
   return NextResponse.json({ id });
-});
-
-export const DELETE = withErrors(async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
-  const { id } = await params;
-  await deleteRowsByField("Transfers", "id", id);
-  return NextResponse.json({ success: true, id });
 });
