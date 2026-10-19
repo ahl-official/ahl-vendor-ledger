@@ -1,7 +1,7 @@
 // One-off: creates a "Proof Uploads" folder inside the Shared Drive the service account
 // already has access to (the same one the Sheet lives in), and writes its ID into
 // .env.local as GOOGLE_DRIVE_FOLDER_ID. Run with: npm run setup:upload-folder -- <SHARED_DRIVE_ID>
-import { readFileSync, existsSync, appendFileSync } from "node:fs";
+import { readFileSync, existsSync, appendFileSync, writeFileSync } from "node:fs";
 import { google } from "googleapis";
 
 const KEY_PATH = "secrets/service-account.json";
@@ -30,8 +30,17 @@ async function main() {
     console.log("Folder already exists:", folderId);
   }
 
-  appendFileSync(".env.local", `\nGOOGLE_DRIVE_FOLDER_ID=${folderId}\n`);
-  console.log("Wrote GOOGLE_DRIVE_FOLDER_ID to .env.local");
+  // Replace any existing GOOGLE_DRIVE_FOLDER_ID line instead of blind-appending, so
+  // re-running this script never leaves two conflicting values in .env.local.
+  const envPath = ".env.local";
+  const envText = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+  if (/^GOOGLE_DRIVE_FOLDER_ID=.*$/m.test(envText)) {
+    writeFileSync(envPath, envText.replace(/^GOOGLE_DRIVE_FOLDER_ID=.*$/m, `GOOGLE_DRIVE_FOLDER_ID=${folderId}`));
+    console.log("Updated GOOGLE_DRIVE_FOLDER_ID in .env.local");
+  } else {
+    appendFileSync(envPath, `\nGOOGLE_DRIVE_FOLDER_ID=${folderId}\n`);
+    console.log("Wrote GOOGLE_DRIVE_FOLDER_ID to .env.local");
+  }
   console.log(`\nAlso add this to Vercel project env vars: GOOGLE_DRIVE_FOLDER_ID=${folderId}`);
 }
 

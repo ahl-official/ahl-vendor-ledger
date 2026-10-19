@@ -171,11 +171,30 @@ cleanup could remove it or repoint it.
 FX nav link had been silently dropped from `app/components/Nav.tsx` even though the page
 and API still worked — restored. `Credit_Notes` was missing from `npm run
 clear:test-activity`'s table list (added, after it caused this review's own test data to
-linger). And `GOOGLE_DRIVE_FOLDER_ID` was never set anywhere, breaking the proof-upload
-feature entirely (`File upload is not set up: GOOGLE_DRIVE_FOLDER_ID is missing`) —
-created the folder (`npm run setup:upload-folder`) and wrote the env var locally; **you
-must add the same `GOOGLE_DRIVE_FOLDER_ID` to Vercel's project env vars** for uploads to
-work in production, local `.env.local` only covers local dev.
+linger). And `GOOGLE_DRIVE_FOLDER_ID` appeared unset locally, breaking the proof-upload
+feature (`File upload is not set up: GOOGLE_DRIVE_FOLDER_ID is missing`) — it turned out
+the other agent had already created a working folder ("Proofs", ID
+`1-_wEU1d5AYRs7y7jLE8fcSyq6b_hkkYI`) and set it locally; **add this exact
+`GOOGLE_DRIVE_FOLDER_ID` to Vercel's project env vars** for uploads to work in
+production, local `.env.local` only covers local dev.
+
+### 2026-10-19 — `setup-upload-folder.ts` blindly appended, creating a duplicate env key
+
+**What happened:** not knowing the other agent had already set `GOOGLE_DRIVE_FOLDER_ID`,
+running `npm run setup:upload-folder` again created a second, empty "Proof Uploads"
+folder and `appendFileSync`'d a second `GOOGLE_DRIVE_FOLDER_ID=` line onto `.env.local`
+instead of checking for one first. Node's `.env` loaders generally take the *last*
+matching key, so the app kept working, but the file was confusing and the two IDs
+disagreed. Confirmed via the Drive API which folder was real (the first one — already
+had a test upload in it) and deleted the duplicate line, keeping only
+`1-_wEU1d5AYRs7y7jLE8fcSyq6b_hkkYI`.
+
+**Fix:** `setup-upload-folder.ts` now reads `.env.local` first and replaces an existing
+`GOOGLE_DRIVE_FOLDER_ID=` line in place instead of appending a new one, so re-running it
+is safe.
+
+**Lesson:** any script that writes to `.env.local` must check for an existing key first.
+Appending is never safe for a key that might already be set.
 
 ## Open questions for the business owner (unchanged from original PRD)
 
