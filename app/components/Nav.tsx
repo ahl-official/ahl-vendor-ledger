@@ -8,7 +8,6 @@ const NAV = [
   { href: "/orders", label: "Orders" },
   { href: "/payments/new", label: "Record Money" },
   { href: "/vendor-balance", label: "Use Balance" },
-  { href: "/agent-fx", label: "Agent FX" },
   { href: "/ledger", label: "Ledger" },
 ];
 
