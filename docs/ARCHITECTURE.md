@@ -83,6 +83,12 @@ and Credit Notes. Applications.movementId and Transfers.sourceMovementId now ref
 one of these original source IDs; they do not necessarily reference Money_Movements.
 No new cash receipt is fabricated to represent transferred money.
 
+Imported general vendor credits may have an empty Credit_Notes.orderId when no
+original purchase invoice is identified. Keep their source reference in reason.
+They increase the vendor's held balance without reducing any order's net cost.
+Applications can spend them against actual outstanding orders using the credit ID.
+The statement labels them as vendor credit on account and has no order edit link.
+
 vendorOpenReceipts() retains its old API name but returns all three source kinds.
 Imported historical transfers whose source receipt was unspecified have an empty
 sourceMovementId: their outgoing value is reserved FIFO across the sender's sources.

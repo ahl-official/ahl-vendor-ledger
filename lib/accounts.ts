@@ -29,7 +29,7 @@ export function vendorAccount(vendorId: string, d: LedgerData) {
     events.push({ id: a.id, kind: "application", date: a.date ?? a.createdAt.slice(0, 10), createdAt: a.createdAt, label: `Applied to order ${order?.invoiceRef || a.orderId}`, currency: source?.currency ?? receipt?.currency ?? order?.currency ?? "", credited: 0, debited: a.amount, balance: 0, reversed: !a.active || !!receipt?.reversed, note: a.reversedReason || "", proofUrl: receipt?.proofUrl ?? "", legacy: !!a.legacyId });
   }
   for (const c of (d.creditNotes ?? []).filter(c => c.vendorId === vendorId)) {
-    events.push({ id: c.id, kind: "credit_note", date: c.date, createdAt: c.createdAt, label: `Credit note · ${orders.find(o => o.id === c.orderId)?.invoiceRef || c.orderId}`, currency: c.currency, credited: c.amount, debited: 0, balance: 0, reversed: c.reversed, note: c.reason, proofUrl: "", legacy: false });
+    events.push({ id: c.id, kind: "credit_note", date: c.date, createdAt: c.createdAt, label: c.orderId ? `Credit note · ${orders.find(o => o.id === c.orderId)?.invoiceRef || c.orderId}` : "Vendor credit on account", currency: c.currency, credited: c.amount, debited: 0, balance: 0, reversed: c.reversed, note: c.reason, proofUrl: "", legacy: false });
   }
   const priority = (e: StatementEvent) => e.kind === "movement" || (e.kind === "transfer" && e.credited) ? 0 : 1;
   events.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt) || priority(a) - priority(b) || a.id.localeCompare(b.id));

@@ -85,3 +85,20 @@ test('opening balance funds orders without inventing an agent or company payment
   assert.equal(vendorHeld('vendor', 'RMB', d), 0);
   assert.equal(orderSummary(d.orders[0], d).due, 90);
 });
+
+test('general vendor credit funds real orders once without changing their invoice values', () => {
+  const d = empty();
+  d.orders.push({ id: 'invoice', vendorId: 'vendor', currency: 'RMB', shippingFee: 0, adjustment: 0, legacyTotal: 50 });
+  d.creditNotes.push({ id: 'credit', orderId: '', vendorId: 'vendor', currency: 'RMB', amount: 80, date: '2026-08-01', createdAt: '2026-08-01', reversed: false, reason: 'Historical credit reference' });
+  assert.equal(vendorHeld('vendor', 'RMB', d), 80);
+  assert.equal(orderSummary(d.orders[0], d).netCost, 50);
+  assert.equal(orderSummary(d.orders[0], d).due, 50);
+  assert.equal(vendorAccount('vendor', d).events[0].label, 'Vendor credit on account');
+  d.applications.push({ id: 'apply-credit', movementId: 'credit', orderId: 'invoice', amount: 50, active: true, date: '2026-08-02', createdAt: '2026-08-02' });
+  assert.equal(vendorHeld('vendor', 'RMB', d), 30);
+  assert.equal(movementRemaining('credit', d), 30);
+  assert.equal(orderSummary(d.orders[0], d).due, 0);
+  assert.equal(orderSummary(d.orders[0], d).creditNotes, 0);
+  assert.equal(vendorAccount('vendor', d).events[0].balance, 30);
+  assert.deepEqual(agentPosition('agent', d), {});
+});
