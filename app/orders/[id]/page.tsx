@@ -517,7 +517,13 @@ function OrderDetailContent() {
       {order.proofUrl && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="field-label">Actual invoice</div>
-          <a href={order.proofUrl} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>View uploaded invoice</a>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {order.proofUrl.split(",").filter(Boolean).map((u, i) => (
+              <a key={u} href={u} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>
+                View invoice file {i + 1}
+              </a>
+            ))}
+          </div>
         </div>
       )}
 
