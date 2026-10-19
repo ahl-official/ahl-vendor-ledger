@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { vendorAccount } from "@/lib/accounts";
+import { agentStatement } from "@/lib/agent-statement";
+import { LedgerActions, LedgerNote } from "@/app/components/LedgerCells";
 import type { Contact, CreditNote, FxConversion, MoneyMovement, Application, Transfer, Role, Order } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 import { Loading } from "@/app/components/Loading";
@@ -34,6 +36,8 @@ type Event = {
   credited?: number | null;
   debited?: number | null;
   runningBalance?: number | null;
+  balances?: Record<string, number>;
+  conversionIncluded?: boolean;
 };
 
 export default function LedgerPage() {
@@ -78,8 +82,6 @@ export default function LedgerPage() {
     loadLedger();
   }, []);
 
-  const nameOf = (id: string) => contacts.find((c) => c.id === id)?.name ?? id;
-
   const contactOptions = useMemo(
     () => (roleFilter ? contacts.filter((c) => c.roles.includes(roleFilter)) : []),
     [contacts, roleFilter]
@@ -94,6 +96,7 @@ export default function LedgerPage() {
   const events = useMemo<Event[]>(() => {
     if (!selectedId || !roleFilter) return [];
     const out: Event[] = [];
+    const nameOf = (id: string) => contacts.find(c => c.id === id)?.name ?? id;
 
     if (roleFilter === "Vendor") {
       const statement = vendorAccount(selectedId, { contacts, orders, orderItems: [], movements, applications, transfers, fxConversions, creditNotes });
@@ -104,9 +107,7 @@ export default function LedgerPage() {
         credited: e.credited, debited: e.debited, runningBalance: e.balance,
       })));
     } else if (roleFilter === "Agent") {
-      for (const m of movements.filter(m => !m.reversed && (m.payeeId === selectedId || m.payerId === selectedId))) {
-        out.push({ id: m.id, kind: "movement", date: m.date, createdAt: m.createdAt, label: `${nameOf(m.payerId)} ? ${nameOf(m.payeeId)}`, amount: m.payeeId === selectedId ? m.amount : -m.amount, currency: m.currency, note: m.note, rate: m.quotedRate, editHref: `/payments/new?editId=${m.id}` });
-      }
+      out.push(...agentStatement(selectedId, { contacts, orders, orderItems: [], movements, applications, transfers, fxConversions, creditNotes }).map(row => ({ ...row, kind: "movement" as const, editHref: `/payments/new?editId=${row.id}` })));
     } else if (roleFilter === "Company") {
       movements
         .filter((m) => !m.reversed && (m.type === "CompanyToAgent" || m.type === "CompanyToVendor" || m.type === "LegacyCompanyToVendor") && m.payerId === selectedId)
@@ -167,6 +168,7 @@ export default function LedgerPage() {
 
   const vendorOrders = roleFilter === "Vendor" ? orders.filter((o) => o.vendorId === selectedId) : [];
   const vendorHeld = roleFilter === "Vendor" ? vendors.find((v) => v.id === selectedId)?.held : undefined;
+  const extraAgentCurrencies = roleFilter === "Agent" ? [...new Set(events.map(e => e.currency))].filter(c => c !== "INR" && c !== "RMB") : [];
   const companyNet = useMemo(() => {
     if (roleFilter !== "Company") return undefined;
     const byCurrency: Record<string, number> = {};
@@ -180,7 +182,7 @@ export default function LedgerPage() {
   // docs/ARCHITECTURE.md rule 1): the entry stays visible, struck-through, with a
   // "Corrected"/"Voided" badge, instead of vanishing with no trace.
   const handleDeleteTransaction = async (e: Event) => {
-    if (!window.confirm(`Void this transaction "${e.label}"?\n\nIt will stay visible (struck-through) in the history for audit purposes -- it is not permanently deleted.`)) {
+    if (!window.confirm(`Void this transaction "${e.label}"?\n\nThe original record is kept in history. This removes its effect from balances.`)) {
       return;
     }
     setDeletingId(e.id);
@@ -269,7 +271,7 @@ export default function LedgerPage() {
                   : <span className="muted">Nothing held</span>}
               </>
             )}
-            {roleFilter === "Agent" && <><p className="field-label">Running position, by currency</p>{Object.entries(agents.find(a => a.id === selectedId)?.position ?? {}).map(([cur, amount]) => <div key={cur} className={`badge ${Math.abs(amount) < 0.005 ? "ok" : amount > 0 ? "hold" : "err"}`}>{Math.abs(amount) < 0.005 ? `${cur} settled` : amount > 0 ? `Holds ${cur} ${amount.toFixed(2)}` : `Company owes ${cur} ${(-amount).toFixed(2)}`}</div>)}<p className="muted">Actual funding and payouts are listed below. Confirmed Agent FX links settle the two currency positions; currencies are not guessed or automatically combined.</p></>}
+            {roleFilter === "Agent" && <><p className="field-label">Running position</p>{Object.entries(agents.find(a => a.id === selectedId)?.position ?? {}).map(([cur, amount]) => <span key={cur} className={`badge agent-position ${Math.abs(amount) < 0.005 ? "ok" : amount > 0 ? "hold" : "err"}`}>{Math.abs(amount) < 0.005 ? `Settled (${cur} 0.00)` : amount > 0 ? `Agent holds: ${cur} ${amount.toFixed(2)}` : `Company owes: ${cur} ${(-amount).toFixed(2)}`}</span>)}</>}
             {roleFilter === "Company" && (
               <>
                 <p className="field-label">Net cash movement</p>
@@ -309,7 +311,20 @@ export default function LedgerPage() {
           {events.length === 0 ? (
             <p className="muted">No transactions yet.</p>
           ) : roleFilter === "Agent" ? (
-            <table><thead><tr><th>Date</th><th>Actual movement</th><th>Amount</th><th>Quoted rate</th><th>Note</th><th>Actions</th></tr></thead><tbody>{events.map(e => <tr key={e.id}><td>{e.date || "Unknown"}</td><td>{e.label}</td><td>{e.currency} {e.amount.toFixed(2)}</td><td>{e.rate ?? "?"}</td><td style={{ maxWidth: 360, whiteSpace: "pre-wrap" }}>{e.note}</td><td>{e.editHref && <Link href={e.editHref}>Edit</Link>} <button className="secondary" disabled={deletingId === e.id} onClick={() => handleDeleteTransaction(e)}>Void</button></td></tr>)}</tbody></table>
+            <div className="ledger-table-scroll"><table className="agent-passbook">
+              <thead><tr><th>Date</th><th>What</th><th>Rate</th><th>INR</th><th>Credited (RMB)</th><th>Debited (RMB)</th><th>Balance (RMB)</th>{extraAgentCurrencies.map(cur => <th key={cur}>{cur} / balance</th>)}<th>Note</th><th style={{ textAlign: "right" }}>Actions</th></tr></thead>
+              <tbody>{events.map(e => <tr key={e.id}>
+                <td>{e.date || "Unknown"}</td><td>{e.label}</td>
+                <td className="muted">{e.rate != null ? e.rate.toFixed(2) : "—"}</td>
+                <td className={e.inrAmount == null ? "muted" : e.inrAmount < 0 ? "error-text" : ""}>{e.inrAmount != null ? `${e.inrAmount < 0 ? "-" : "+"}₹${Math.abs(e.inrAmount).toFixed(2)}` : "—"}</td>
+                <td className={e.rmbAmount != null && e.rmbAmount > 0 ? "ledger-credit" : "muted"} title={e.conversionIncluded ? "Includes a confirmed currency conversion" : undefined}>{e.rmbAmount != null && e.rmbAmount > 0 ? `+¥${e.rmbAmount.toFixed(2)}` : "—"}</td>
+                <td className={e.rmbAmount != null && e.rmbAmount < 0 ? "error-text" : "muted"}>{e.rmbAmount != null && e.rmbAmount < 0 ? `-¥${Math.abs(e.rmbAmount).toFixed(2)}` : "—"}</td>
+                <td><span className={`badge ${(e.balanceRmb ?? 0) > 0.001 ? "hold" : (e.balanceRmb ?? 0) < -0.001 ? "err" : "ok"}`}>{(e.balanceRmb ?? 0) < 0 ? "-" : ""}¥{Math.abs(e.balanceRmb ?? 0).toFixed(2)}</span></td>
+                {extraAgentCurrencies.map(cur => <td key={cur}>{e.currency === cur ? `${e.amount < 0 ? "-" : "+"}${Math.abs(e.amount).toFixed(2)}` : "—"}<br /><span className="muted">{cur} {(e.balances?.[cur] ?? 0).toFixed(2)}</span></td>)}
+                <td className="muted"><LedgerNote text={e.note} proofUrl={proofById.get(e.id)} /></td>
+                <td style={{ textAlign: "right" }}><LedgerActions editHref={e.editHref} disabled={deletingId === e.id} onVoid={() => handleDeleteTransaction(e)} /></td>
+              </tr>)}</tbody>
+            </table></div>
           ) : roleFilter === "Vendor" ? (
             <table>
               <thead>
@@ -364,7 +379,7 @@ export default function LedgerPage() {
                         "—"
                       )}
                     </td>
-                    <td className="muted">{e.note || "—"}{proofById.get(e.id) && <> <a href={proofById.get(e.id)} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>proof</a></>}</td>
+                    <td className="muted"><LedgerNote text={e.note} proofUrl={proofById.get(e.id)} /></td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                         {e.editHref && (
@@ -420,7 +435,7 @@ export default function LedgerPage() {
                     <td>{e.date}</td>
                     <td>{e.label}</td>
                     <td className={e.amount >= 0 ? "" : "error-text"}>{e.amount >= 0 ? "+" : ""}{e.currency} {e.amount.toFixed(2)}</td>
-                    <td className="muted">{e.note || "—"}{proofById.get(e.id) && <> <a href={proofById.get(e.id)} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>proof</a></>}</td>
+                    <td className="muted"><LedgerNote text={e.note} proofUrl={proofById.get(e.id)} /></td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                         {e.editHref && (

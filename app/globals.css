@@ -147,6 +147,23 @@ tbody tr { transition: background-color 0.1s ease; }
 tbody tr:hover { background-color: var(--soft); }
 
 .muted { color: var(--muted); }
+.ledger-table-scroll { overflow-x: auto; }
+.agent-passbook th, .agent-passbook td { padding: 8px; }
+.agent-passbook td { vertical-align: top; }
+.agent-passbook td:first-child, .agent-passbook td:nth-child(n+3):nth-child(-n+7) { white-space: nowrap; }
+.agent-position { margin-right: 6px; padding: 6px 12px; font-size: 13px; }
+.ledger-credit { color: #166534; }
+.ledger-actions { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+.ledger-note { min-width: 120px; max-width: 210px; overflow-wrap: anywhere; }
+.ledger-note summary { cursor: pointer; list-style: none; white-space: nowrap; }
+.ledger-note summary::-webkit-details-marker { display: none; }
+.ledger-note summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.ledger-note-preview { display: inline-block; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.ledger-read-more, .ledger-read-less, .ledger-proof { color: var(--accent); text-decoration: underline; font-size: 11px; }
+.ledger-read-less { display: none; }
+.ledger-note details[open] .ledger-read-less { display: inline; }
+.ledger-note details[open] .ledger-read-more { display: none; }
+.ledger-note-full { margin-top: 6px; white-space: pre-wrap; }
 .error-text { color: var(--danger); }
 
 .loading-row {
