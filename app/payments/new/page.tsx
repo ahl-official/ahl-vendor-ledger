@@ -6,13 +6,13 @@ import { METHOD_DEFAULTS, REFERENCE_DEFAULTS } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 import { ProofUpload } from "@/app/components/ProofUpload";
 
-// The vendor is always paid through the agent -- there is no direct Company → Vendor path
-// (confirmed business rule, 16 Oct 2026). Company → Agent and Agent → Vendor can be recorded
-// in either order: the agent sometimes pays the vendor first and the company reimburses after.
+// Company can pay a vendor directly or fund an agent who pays the vendor.
+// Agent funding and payout can be recorded in either order.
 const TYPE_OPTIONS: { value: MovementType; label: string; payerRole: string; payeeRole: string }[] = [
   { value: "CompanyToAgent", label: "Company → Agent  (INR funding sent)", payerRole: "Company", payeeRole: "Agent" },
   { value: "AgentToCompany", label: "Agent → Company  (RMB returned)", payerRole: "Agent", payeeRole: "Company" },
   { value: "AgentToVendor", label: "Agent → Vendor  (agent pays vendor)", payerRole: "Agent", payeeRole: "Vendor" },
+  { value: "CompanyToVendor", label: "Company → Vendor  (direct payment)", payerRole: "Company", payeeRole: "Vendor" },
 ];
 
 type OrderRow = { id: string; vendorId: string; invoiceRef: string; currency: string; due: number };
@@ -100,7 +100,7 @@ function RecordMovementContent() {
 
   const availableTypes = editId && type === "LegacyCompanyToVendor" ? [...TYPE_OPTIONS, { value: "LegacyCompanyToVendor" as MovementType, label: "Historical Company ? Vendor", payerRole: "Company", payeeRole: "Vendor" }] : TYPE_OPTIONS;
   const cfg = availableTypes.find((t) => t.value === type)!;
-  const isVendorReceipt = type === "AgentToVendor" || type === "LegacyCompanyToVendor";
+  const isVendorReceipt = type === "AgentToVendor" || type === "CompanyToVendor" || type === "LegacyCompanyToVendor";
   const byRole = (role: string) => contacts.filter((c) => c.roles.includes(role as any));
   const vendorOrders = useMemo(
     () => orders.filter((o) => o.vendorId === payeeId && o.currency === currency && (o.due > 0.01 || o.id === orderId)),
@@ -136,7 +136,7 @@ function RecordMovementContent() {
           method, reference, note, proofUrl,
           paymentUse: isVendorReceipt ? paymentUse : "",
           orderId: paymentUse === "OnAccountOnly" ? "" : orderId,
-          appliedAmount: paymentUse === "OnAccountOnly" ? 0 : Number(appliedAmount || 0),
+          appliedAmount: paymentUse === "OnAccountOnly" ? 0 : paymentUse === "OrderOnly" ? Number(amount) : Number(appliedAmount || 0),
         }),
       });
       if (!res.ok) {
@@ -180,7 +180,7 @@ function RecordMovementContent() {
       <form onSubmit={submit} className="card grid" style={{ gap: 16, maxWidth: 640 }}>
         <div>
           <label>Flow</label>
-          <select value={type} onChange={(e) => { const t = e.target.value as MovementType; setType(t); setCurrency(t === "AgentToVendor" ? "RMB" : "INR"); setPayerId(""); setPayeeId(""); setPaymentUse(""); setOrderId(""); }}>
+          <select value={type} onChange={(e) => { const t = e.target.value as MovementType; setType(t); setCurrency(t === "AgentToVendor" || t === "CompanyToVendor" ? "RMB" : "INR"); setPayerId(""); setPayeeId(""); setPaymentUse(""); setOrderId(""); setActualRate(""); setQuotedRate(""); setAgentFee(""); }}>
             {availableTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>

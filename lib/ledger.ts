@@ -50,7 +50,7 @@ export function orderSummary(order: Order, d: LedgerData) {
 /** Vendor funding sources, including import-only historical receipts and balance carried forward.
  * OpeningBalance has no payer and does not represent a new cash payment or agent spend. */
 export function isReceipt(m: MoneyMovement): boolean {
-  return !m.reversed && (m.type === "AgentToVendor" || m.type === "LegacyCompanyToVendor" || m.type === "OpeningBalance");
+  return !m.reversed && (m.type === "AgentToVendor" || m.type === "CompanyToVendor" || m.type === "LegacyCompanyToVendor" || m.type === "OpeningBalance");
 }
 
 /** How much of a receipt's amount is still unapplied / untransferred — what "Use Vendor Balance" can spend. */

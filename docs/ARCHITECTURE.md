@@ -65,10 +65,14 @@ is always wrong.
 
 ### 4. New receipts and historical direct receipts
 
-New payments use AgentToVendor, CompanyToAgent, or AgentToCompany. The 19 October
+New payments use AgentToVendor, CompanyToVendor, CompanyToAgent, or AgentToCompany.
+CompanyToVendor was authorized on 19 October for direct company/CEO payments. It
+credits the vendor and debits the company statement without changing agent positions.
+It supports the same order/on-account choices as AgentToVendor. The 19 October
 migration also imports the old system's actual company-to-vendor payments as
 LegacyCompanyToVendor. This import-only type preserves the real payer; the normal
-POST route rejects it. isReceipt() recognizes both vendor receipt types.
+POST route only permits corrections to existing legacy rows. isReceipt() recognizes
+both current vendor receipt types and the imported historical direct receipts.
 
 An import may also carry forward a confirmed fiscal-year opening balance as
 OpeningBalance in Money_Movements. It has no payer, method, or exchange rate and

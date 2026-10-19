@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAllData } from "@/lib/data";
 import { orderSummary } from "@/lib/ledger";
-import { MOVEMENT_TYPES, type MovementType, type PaymentUse } from "@/lib/schema";
+import { MOVEMENT_TYPES, PAYMENT_USES, type MovementType, type PaymentUse } from "@/lib/schema";
 import { appendRow, newId } from "@/lib/sheets";
 import { registerOptionIfNew } from "@/lib/options";
 import { withErrors } from "@/lib/api";
@@ -23,11 +23,11 @@ export const POST = withErrors(async (req: Request) => {
   const payer = d.contacts.find(c => c.id === body.payerId && c.active);
   const payee = d.contacts.find(c => c.id === body.payeeId && c.active);
   if (type === "LegacyCompanyToVendor" && !d.movements.some(m => m.id === body.editId && m.type === "LegacyCompanyToVendor")) return NextResponse.json({ error: "Historical flow is only for correcting an imported payment" }, { status: 400 });
-  const roles = type === "CompanyToAgent" ? ["Company", "Agent"] : type === "AgentToCompany" ? ["Agent", "Company"] : type === "LegacyCompanyToVendor" ? ["Company", "Vendor"] : ["Agent", "Vendor"];
+  const roles = type === "CompanyToAgent" ? ["Company", "Agent"] : type === "AgentToCompany" ? ["Agent", "Company"] : type === "CompanyToVendor" || type === "LegacyCompanyToVendor" ? ["Company", "Vendor"] : ["Agent", "Vendor"];
   if (!payer || !payee || payer.id === payee.id || !payer.roles.some(r => r === roles[0]) || !payee.roles.some(r => r === roles[1])) return NextResponse.json({ error: "Payer and recipient must match the selected money flow" }, { status: 400 });
-  const isVendorReceipt = type === "AgentToVendor" || type === "LegacyCompanyToVendor";
+  const isVendorReceipt = type === "AgentToVendor" || type === "CompanyToVendor" || type === "LegacyCompanyToVendor";
   const paymentUse = (isVendorReceipt ? (body.paymentUse as PaymentUse) : "") || "";
-  if (isVendorReceipt && !paymentUse) {
+  if (isVendorReceipt && !PAYMENT_USES.includes(paymentUse as PaymentUse)) {
     return NextResponse.json({ error: "Choose Order only / On-account only / Order + on-account" }, { status: 400 });
   }
 
@@ -37,7 +37,7 @@ export const POST = withErrors(async (req: Request) => {
     orderId = String(body.orderId ?? "");
     appliedAmount = Number(body.appliedAmount ?? 0);
     if (!orderId) return NextResponse.json({ error: "Choose the order being paid" }, { status: 400 });
-    if (!appliedAmount || appliedAmount <= 0) {
+    if (!Number.isFinite(appliedAmount) || appliedAmount <= 0) {
       return NextResponse.json({ error: "Enter how much of this payment applies to the order" }, { status: 400 });
     }
     if (appliedAmount > amount) {

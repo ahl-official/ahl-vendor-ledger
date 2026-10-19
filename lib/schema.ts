@@ -15,10 +15,8 @@ export const SHEETS = {
   Order_Items: [
     "id", "orderId", "description", "sku", "qty", "unit", "unitPrice", "lineTotal", "createdAt",
   ],
-  // A "receipt" movement is AgentToVendor -- the only type a vendor can apply to an order
-  // or hold on-account. CompanyToAgent / AgentToCompany are pure funding events between
-  // company and agent and are never applied to an order. There is no CompanyToVendor: the
-  // vendor is always paid through the agent (confirmed business rule, 16 Oct 2026).
+  // AgentToVendor and CompanyToVendor receipts can fund orders or remain on account.
+  // CompanyToAgent / AgentToCompany only change company-agent funding positions.
   Money_Movements: [
     "id", "date", "type", "payerId", "payeeId", "amount", "currency",
     "actualRate", "quotedRate", "agentFee",
@@ -71,7 +69,7 @@ export const ROLES = ["Vendor", "Supplier", "Agent", "Company", "Other"] as cons
 export type Role = (typeof ROLES)[number];
 
 export const MOVEMENT_TYPES = [
-  "CompanyToAgent", "AgentToCompany", "AgentToVendor",
+  "CompanyToAgent", "AgentToCompany", "AgentToVendor", "CompanyToVendor",
 ] as const;
 // Import-only: not offered by the normal Record Money form or accepted on POST.
 export type MovementType = (typeof MOVEMENT_TYPES)[number] | "LegacyCompanyToVendor" | "OpeningBalance";

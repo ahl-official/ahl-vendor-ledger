@@ -102,3 +102,23 @@ test('general vendor credit funds real orders once without changing their invoic
   assert.equal(vendorAccount('vendor', d).events[0].balance, 30);
   assert.deepEqual(agentPosition('agent', d), {});
 });
+
+test('direct company payment credits the vendor once and leaves agent funding unchanged', () => {
+  const d = empty();
+  d.contacts.push({ id: 'company', name: 'Company', roles: ['Company'] });
+  d.movements.push(receipt('direct', 'vendor', 120, 'CompanyToVendor'));
+  assert.equal(vendorHeld('vendor', 'RMB', d), 120);
+  assert.equal(movementRemaining('direct', d), 120);
+  assert.equal(vendorHeld('vendor', 'USD', d), 0);
+  assert.deepEqual(agentPosition('agent', d), {});
+  assert.equal(vendorAccount('vendor', d).events[0].label, 'Received from Company');
+  d.orders.push({ id: 'invoice', vendorId: 'vendor', currency: 'RMB', shippingFee: 0, adjustment: 0, legacyTotal: 90 });
+  d.applications.push({ id: 'apply-direct', movementId: 'direct', orderId: 'invoice', amount: 90, active: true, date: '2026-08-02', createdAt: '2026-08-02' });
+  assert.equal(orderSummary(d.orders[0], d).due, 0);
+  assert.equal(vendorHeld('vendor', 'RMB', d), 30);
+  assert.equal(movementRemaining('direct', d), 30);
+  d.movements[0].reversed = true;
+  d.applications[0].active = false;
+  assert.equal(vendorHeld('vendor', 'RMB', d), 0);
+  assert.equal(orderSummary(d.orders[0], d).due, 90);
+});

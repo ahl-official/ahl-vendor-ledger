@@ -109,7 +109,7 @@ export default function LedgerPage() {
       }
     } else if (roleFilter === "Company") {
       movements
-        .filter((m) => !m.reversed && (m.type === "CompanyToAgent" || m.type === "LegacyCompanyToVendor") && m.payerId === selectedId)
+        .filter((m) => !m.reversed && (m.type === "CompanyToAgent" || m.type === "CompanyToVendor" || m.type === "LegacyCompanyToVendor") && m.payerId === selectedId)
         .forEach((m) =>
           out.push({
             id: m.id,
