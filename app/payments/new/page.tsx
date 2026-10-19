@@ -98,8 +98,9 @@ function RecordMovementContent() {
       .catch((e) => { setError(e.message); setEditLoaded(true); });
   }, [editId]);
 
-  const cfg = TYPE_OPTIONS.find((t) => t.value === type)!;
-  const isVendorReceipt = type === "AgentToVendor";
+  const availableTypes = editId && type === "LegacyCompanyToVendor" ? [...TYPE_OPTIONS, { value: "LegacyCompanyToVendor" as MovementType, label: "Historical Company ? Vendor", payerRole: "Company", payeeRole: "Vendor" }] : TYPE_OPTIONS;
+  const cfg = availableTypes.find((t) => t.value === type)!;
+  const isVendorReceipt = type === "AgentToVendor" || type === "LegacyCompanyToVendor";
   const byRole = (role: string) => contacts.filter((c) => c.roles.includes(role as any));
   const vendorOrders = useMemo(
     () => orders.filter((o) => o.vendorId === payeeId && o.currency === currency && (o.due > 0.01 || o.id === orderId)),
@@ -130,7 +131,7 @@ function RecordMovementContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          type, payerId, payeeId, amount: Number(amount), currency, date,
+          editId, type, payerId, payeeId, amount: Number(amount), currency, date,
           actualRate: actualRate || null, quotedRate: quotedRate || null, agentFee: agentFee || null,
           method, reference, note, proofUrl,
           paymentUse: isVendorReceipt ? paymentUse : "",
@@ -180,7 +181,7 @@ function RecordMovementContent() {
         <div>
           <label>Flow</label>
           <select value={type} onChange={(e) => { const t = e.target.value as MovementType; setType(t); setCurrency(t === "AgentToVendor" ? "RMB" : "INR"); setPayerId(""); setPayeeId(""); setPaymentUse(""); setOrderId(""); }}>
-            {TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            {availableTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
 

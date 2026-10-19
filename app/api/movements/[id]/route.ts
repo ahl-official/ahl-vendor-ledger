@@ -1,3 +1,4 @@
+import { voidGuard } from "@/lib/void-guard";
 import { NextResponse } from "next/server";
 import { getAllData } from "@/lib/data";
 import { updateRow } from "@/lib/sheets";
@@ -13,6 +14,9 @@ export const PATCH = withErrors(async (req: Request, { params }: { params: Promi
   const { id } = await params;
   const body = await req.json();
   const reason = String(body.reason ?? "Edited");
+  const guardData = await getAllData();
+  const guard = voidGuard(id, guardData);
+  if (guard) return NextResponse.json({ error: guard }, { status: 409 });
   await updateRow("Money_Movements", id, { reversed: true, reversedReason: reason });
 
   // Cascade-void (never delete) any still-active Applications built directly on this

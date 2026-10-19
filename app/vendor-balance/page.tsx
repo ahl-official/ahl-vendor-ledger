@@ -1,7 +1,7 @@
 "use client";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { Application, Contact, MoneyMovement, Transfer } from "@/lib/schema";
+import type { Application, Contact, CreditNote, MoneyMovement, Transfer } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 import { ProofUpload } from "@/app/components/ProofUpload";
 
@@ -66,7 +66,7 @@ function VendorBalanceContent() {
 
   useEffect(() => {
     if (!editId) return;
-    type LedgerFull = { movements: MoneyMovement[]; applications: Application[]; transfers: Transfer[] };
+    type LedgerFull = { movements: MoneyMovement[]; applications: Application[]; transfers: Transfer[]; creditNotes: CreditNote[] };
     fetchJson<LedgerFull>("/api/ledger")
       .then(async (d) => {
         if (editKind === "transfer") {

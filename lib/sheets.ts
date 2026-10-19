@@ -124,6 +124,19 @@ export async function appendRow(tab: SheetName, fields: Record<string, string | 
   }
 }
 
+/** Append a validated group in one atomic Sheets request, so FIFO spending cannot half-save. */
+export async function appendRowsAtomic(tab: SheetName, records: Record<string, string | number | boolean | null>[]) {
+  if (!records.length) return;
+  const sheets = await client();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId(), fields: "sheets.properties" });
+  const id = meta.data.sheets?.find(s => s.properties?.title === tab)?.properties?.sheetId;
+  if (id == null) throw Error(`Missing ${tab} tab`);
+  const headers = SHEETS[tab] as readonly string[];
+  await sheets.spreadsheets.batchUpdate({ spreadsheetId: sheetId(), requestBody: { requests: [{
+    appendCells: { sheetId: id, rows: records.map(record => ({ values: headers.map(h => ({ userEnteredValue: { stringValue: serialize(record[h]) } })) })), fields: "userEnteredValue" },
+  }] } });
+}
+
 /** Patches specific columns on the row whose `id` column matches `id`. */
 export async function updateRow(tab: SheetName, id: string, patch: Record<string, string | number | boolean | null>) {
   const sheets = await client();

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAllData } from "@/lib/data";
-import { orderPaid, orderSummary } from "@/lib/ledger";
+import { balanceSource, orderPaid, orderSummary } from "@/lib/ledger";
 import { appendRow, deleteRowsByField, newId, updateRow } from "@/lib/sheets";
 import { withErrors } from "@/lib/api";
 
@@ -16,9 +16,13 @@ export const GET = withErrors(async (_req: Request, { params }: { params: Promis
     .filter((a) => a.orderId === id && a.active)
     .map((a) => {
       const mov = d.movements.find((m) => m.id === a.movementId);
-      const payer = d.contacts.find((c) => c.id === mov?.payerId);
+      const source = balanceSource(a.movementId, d);
+      const incoming = d.transfers.find(t => t.id === a.movementId);
+      const payer = d.contacts.find((c) => c.id === (mov?.payerId || incoming?.fromVendorId || source?.payeeId));
       return {
         id: a.id,
+        kind: "application",
+        legacy: !!a.legacyId,
         movementId: a.movementId,
         amount: a.amount,
         createdAt: a.createdAt,
@@ -30,6 +34,11 @@ export const GET = withErrors(async (_req: Request, { params }: { params: Promis
       };
     });
 
+  appliedPayments.push(...d.transfers.filter(t => !t.reversed && t.receivingOrderId === id).map(t => ({
+    id: t.id, kind: "transfer", legacy: !!t.legacyId, movementId: t.sourceMovementId, amount: t.amount, createdAt: t.createdAt,
+    date: t.date ?? t.createdAt.slice(0, 10), currency: t.currency, method: "Vendor transfer", reference: t.legacyId || t.id,
+    payerName: d.contacts.find(c => c.id === t.fromVendorId)?.name || t.fromVendorId,
+  })));
   const creditNotes = (d.creditNotes ?? [])
     .filter((c) => c.orderId === id && !c.reversed)
     .map((c) => ({
@@ -72,6 +81,14 @@ export const PATCH = withErrors(async (req: Request, { params }: { params: Promi
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
 
   const paid = orderPaid(order.id, d.applications, d.transfers);
+  if (order.status === "Cancelled") return NextResponse.json({ error: "Cancelled historical order is read-only" }, { status: 409 });
+  if (body.vendorId && body.vendorId !== order.vendorId && d.applications.some(a => a.orderId === id)) return NextResponse.json({ error: "An order with payment history cannot change vendor" }, { status: 400 });
+  if (Array.isArray(body.items)) {
+    const values = body.items as ItemInput[];
+    if (!values.length || values.some(i => !i.description?.trim() || !Number.isFinite(Number(i.qty)) || Number(i.qty) <= 0 || !Number.isFinite(Number(i.unitPrice)) || Number(i.unitPrice) < 0)) return NextResponse.json({ error: "Provide valid confirmed item quantities and prices" }, { status: 400 });
+    const total = values.reduce((sum, i) => sum + Number(i.qty) * Number(i.unitPrice), 0) + Number(body.shippingFee ?? order.shippingFee) + Number(body.adjustment ?? order.adjustment);
+    if (!Number.isFinite(total) || total <= 0 || total + (d.creditNotes ?? []).filter(c => !c.reversed && c.orderId === id).reduce((sum, c) => sum + c.amount, 0) < paid - 0.01) return NextResponse.json({ error: "Confirmed total cannot be less than payments already applied" }, { status: 400 });
+  }
   if (paid > 0 && body.currency && body.currency !== order.currency) {
     return NextResponse.json(
       { error: `Cannot change currency while payments are applied (${order.currency} ${paid.toFixed(2)} applied). Reverse payments first.` },
@@ -80,6 +97,7 @@ export const PATCH = withErrors(async (req: Request, { params }: { params: Promi
   }
 
   const patch: Record<string, string | number | boolean | null> = {};
+  if (Array.isArray(body.items)) { patch.legacyTotal = null; patch.totalKnown = true; }
   if (body.vendorId !== undefined) patch.vendorId = String(body.vendorId);
   if (body.invoiceRef !== undefined) patch.invoiceRef = String(body.invoiceRef);
   if (body.date !== undefined) patch.date = String(body.date);
@@ -123,6 +141,7 @@ export const DELETE = withErrors(async (_req: Request, { params }: { params: Pro
   const order = d.orders.find((o) => o.id === id);
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
 
+  if (order.legacyId || d.applications.some(a => a.orderId === id) || d.transfers.some(t => t.receivingOrderId === id) || d.creditNotes.some(c => c.orderId === id)) return NextResponse.json({ error: "Orders with imported or financial history cannot be deleted" }, { status: 409 });
   const paid = orderPaid(order.id, d.applications, d.transfers);
   if (paid > 0) {
     return NextResponse.json(

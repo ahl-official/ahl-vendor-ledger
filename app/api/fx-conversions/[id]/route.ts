@@ -1,7 +1,7 @@
 // Voids an agent FX conversion link (for editing, or a straight mistake).
 import { NextResponse } from "next/server";
 import { getAllData } from "@/lib/data";
-import { deleteRowsByField, updateRow } from "@/lib/sheets";
+import { updateRow } from "@/lib/sheets";
 import { withErrors } from "@/lib/api";
 
 export const GET = withErrors(async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
@@ -18,10 +18,4 @@ export const PATCH = withErrors(async (req: Request, { params }: { params: Promi
   const reason = String(body.reason ?? "Edited");
   await updateRow("FX_Conversions", id, { reversed: true, reversedReason: reason });
   return NextResponse.json({ id });
-});
-
-export const DELETE = withErrors(async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
-  const { id } = await params;
-  await deleteRowsByField("FX_Conversions", "id", id);
-  return NextResponse.json({ success: true, id });
 });

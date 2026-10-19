@@ -21,7 +21,7 @@ export const GET = withErrors(async () => {
     .filter((c) => c.roles.includes("Agent"))
     .map((a) => ({ ...a, position: agentPosition(a.id, d) }));
 
-  const orderCards = orders.map((o) => ({ ...o, ...orderSummary(o, d) }));
+  const orderCards = orders.filter(o => o.status !== "Cancelled").map((o) => ({ ...o, ...orderSummary(o, d) }));
 
-  return NextResponse.json({ vendors, agents, orders: orderCards, movements, applications, transfers, fxConversions, creditNotes: d.creditNotes ?? [] });
+  return NextResponse.json({ contacts, orderItems: d.orderItems, legacyRecords: d.legacyRecords, vendors, agents, orders: orderCards, movements, applications, transfers, fxConversions, creditNotes: d.creditNotes ?? [] });
 });

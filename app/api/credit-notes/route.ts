@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { orderSummary } from "@/lib/ledger";
 import { getAllData } from "@/lib/data";
 import { appendRow, newId } from "@/lib/sheets";
 import { withErrors } from "@/lib/api";
@@ -28,6 +29,7 @@ export const POST = withErrors(async (req: Request) => {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
+  if (order.status === "Cancelled" || order.totalKnown === false || amount - orderSummary(order, d).netCost > 0.001 || !Number.isFinite(amount)) return NextResponse.json({ error: "Credit exceeds the confirmed order's remaining net value" }, { status: 400 });
   const id = newId("CN");
   const createdAt = new Date().toISOString();
 

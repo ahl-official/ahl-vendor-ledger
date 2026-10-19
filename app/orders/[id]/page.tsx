@@ -8,6 +8,7 @@ import { Loading } from "@/app/components/Loading";
 type AppliedPayment = {
   id: string;
   movementId: string;
+  kind?: string; legacy?: boolean;
   amount: number;
   date: string;
   currency: string;
@@ -42,6 +43,7 @@ type OrderDetail = {
   creditNotesTotal?: number;
   netCost?: number;
   total: number;
+  totalKnown?: boolean; legacyId?: string; reviewNote?: string; status?: string;
   paid: number;
   due: number;
 };
@@ -131,7 +133,7 @@ function OrderDetailContent() {
     setUnlinkingId(payment.id);
     setActionError("");
     try {
-      const res = await fetch(`/api/applications/${payment.id}`, {
+      const res = await fetch(`/api/${payment.kind === "transfer" ? "transfers" : "applications"}/${payment.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: "Unlinked from order" }),
@@ -242,7 +244,7 @@ function OrderDetailContent() {
   const payments = order.appliedPayments ?? [];
   const creditNotes = order.creditNotes ?? [];
   const cnTotal = order.creditNotesTotal ?? 0;
-  const canDeleteOrder = order.paid <= 0 && cnTotal <= 0;
+  const canDeleteOrder = !order.legacyId && order.paid <= 0 && cnTotal <= 0;
 
   return (
     <div>
@@ -283,6 +285,8 @@ function OrderDetailContent() {
         </div>
       </div>
 
+      {order.reviewNote && <p className="badge hold" style={{ whiteSpace: "pre-wrap" }}>{order.reviewNote}</p>}
+      {!order.items.length && <p className="muted">Historical summary: original item breakdown is not available. The recorded total is preserved; quantities have not been invented.</p>}
       {order.due > 0.01 && held > 0.01 && !hideSuggest && (
         <div className="card" style={{ background: "var(--hold-bg)", borderColor: "var(--hold-border)", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <span>
@@ -380,7 +384,7 @@ function OrderDetailContent() {
       <div className="grid" style={{ gridTemplateColumns: cnTotal > 0 ? "repeat(5, 1fr)" : "repeat(4, 1fr)", marginBottom: 16 }}>
         <div className="card">
           <div className="field-label">Total</div>
-          <strong>{order.currency} {order.total.toFixed(2)}</strong>
+          <strong>{order.totalKnown === false ? "Total unknown" : `${order.currency} ${order.total.toFixed(2)}`}</strong>
         </div>
         {cnTotal > 0 && (
           <div className="card" style={{ borderColor: "#059669" }}>
@@ -403,7 +407,7 @@ function OrderDetailContent() {
         )}
         <div className="card">
           <div className="field-label">Due</div>
-          <span className={`badge ${order.due <= 0 ? "ok" : "hold"}`}>{order.currency} {order.due.toFixed(2)}</span>
+          <span className={`badge ${order.totalKnown === false || order.due > 0 ? "hold" : "ok"}`}>{order.status === "Cancelled" ? "Excluded (cancelled)" : order.totalKnown === false ? "Needs confirmation" : `${order.currency} ${order.due.toFixed(2)}`}</span>
         </div>
       </div>
 
@@ -500,7 +504,7 @@ function OrderDetailContent() {
                       disabled={unlinkingId === p.id}
                       onClick={() => handleUnlinkPayment(p)}
                     >
-                      {unlinkingId === p.id ? "Unlinking..." : "Unlink / Reverse"}
+                      {unlinkingId === p.id ? "Reversing..." : p.kind === "transfer" ? "Reverse transfer" : "Unlink / Reverse"}
                     </button>
                   </td>
                 </tr>

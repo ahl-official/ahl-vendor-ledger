@@ -1,4 +1,4 @@
-import type { Application, Contact, CreditNote, FxConversion, MoneyMovement, Order, OrderItem, Transfer } from "./schema";
+import type { Application, Contact, CreditNote, FxConversion, LegacyRecord, MoneyMovement, Order, OrderItem, Transfer } from "./schema.ts";
 
 export interface LedgerData {
   contacts: Contact[];
@@ -9,10 +9,13 @@ export interface LedgerData {
   transfers: Transfer[];
   fxConversions: FxConversion[];
   creditNotes?: CreditNote[];
+  legacyRecords?: LegacyRecord[];
 }
 
 export function orderTotal(order: Order, items: OrderItem[]): number {
-  const itemsTotal = items.filter((i) => i.orderId === order.id).reduce((s, i) => s + i.lineTotal, 0);
+  const lines = items.filter((i) => i.orderId === order.id);
+  if (!lines.length && order.legacyTotal != null) return order.legacyTotal;
+  const itemsTotal = lines.reduce((s, i) => s + i.lineTotal, 0);
   return itemsTotal + order.shippingFee + order.adjustment;
 }
 
@@ -35,6 +38,7 @@ export function orderSummary(order: Order, d: LedgerData) {
     .reduce((s, c) => s + c.amount, 0);
   const netCost = Math.max(0, total - creditNotes);
   return {
+    totalKnown: order.totalKnown !== false,
     total,
     paid,
     creditNotes,
@@ -46,28 +50,46 @@ export function orderSummary(order: Order, d: LedgerData) {
 /** A "receipt" is a vendor-payee movement. The vendor is always paid through the agent, so this is
  *  just AgentToVendor -- there is no direct CompanyToVendor path. */
 export function isReceipt(m: MoneyMovement): boolean {
-  return !m.reversed && m.type === "AgentToVendor";
+  return !m.reversed && (m.type === "AgentToVendor" || m.type === "LegacyCompanyToVendor");
 }
 
 /** How much of a receipt's amount is still unapplied / untransferred — what "Use Vendor Balance" can spend. */
 export function movementRemaining(movementId: string, d: LedgerData): number {
-  const movement = d.movements.find((m) => m.id === movementId);
-  if (!movement) return 0;
-  const applied = d.applications
-    .filter((a) => a.movementId === movementId && a.active)
-    .reduce((s, a) => s + a.amount, 0);
-  const transferredOut = d.transfers
-    .filter((t) => t.sourceMovementId === movementId && !t.reversed)
-    .reduce((s, t) => s + t.amount, 0);
-  return movement.amount - applied - transferredOut;
+  const source = balanceSource(movementId, d);
+  if (!source) return 0;
+  return vendorOpenReceipts(source.payeeId, d).find(r => r.movement.id === movementId)?.remaining ?? 0;
 }
 
-/** Every receipt a vendor has with money still sitting unused, per currency. */
+export interface BalanceSource {
+  id: string; payeeId: string; currency: string; amount: number; date: string; createdAt: string;
+  kind: "Receipt" | "Transfer" | "CreditNote";
+}
+
+/** Source IDs remain the original movement/transfer/credit IDs, never synthetic cash. */
+export function balanceSource(id: string, d: LedgerData): BalanceSource | undefined {
+  const m = d.movements.find(m => m.id === id && isReceipt(m));
+  if (m) return { ...m, kind: "Receipt" };
+  const t = d.transfers.find(t => t.id === id && !t.reversed && t.purpose === "Transfer" && !t.receivingOrderId);
+  if (t) return { id: t.id, payeeId: t.toContactId, currency: t.currency, amount: t.amount, date: t.date ?? t.createdAt.slice(0, 10), createdAt: t.createdAt, kind: "Transfer" };
+  const c = d.creditNotes?.find(c => c.id === id && !c.reversed);
+  if (c) return { id: c.id, payeeId: c.vendorId, currency: c.currency, amount: c.amount, date: c.date, createdAt: c.createdAt, kind: "CreditNote" };
+}
+
+/** All spendable sources. Imported pooled transfers are reserved FIFO without inventing events. */
 export function vendorOpenReceipts(vendorId: string, d: LedgerData) {
-  return d.movements
-    .filter((m) => isReceipt(m) && m.payeeId === vendorId)
-    .map((m) => ({ movement: m, remaining: movementRemaining(m.id, d) }))
-    .filter((r) => r.remaining > 0.001);
+  const sources = [...d.movements.map(x => x.id), ...d.transfers.map(x => x.id), ...(d.creditNotes ?? []).map(x => x.id)]
+    .map(id => balanceSource(id, d)).filter((s): s is BalanceSource => !!s && s.payeeId === vendorId)
+    .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || a.id.localeCompare(b.id));
+  const pooled: Record<string, number> = {};
+  for (const t of d.transfers.filter(t => !t.reversed && t.fromVendorId === vendorId && !t.sourceMovementId)) pooled[t.currency] = (pooled[t.currency] ?? 0) + t.amount;
+  return sources.map(movement => {
+    const direct = d.applications.filter(a => a.active && a.movementId === movement.id).reduce((s, a) => s + a.amount, 0)
+      + d.transfers.filter(t => !t.reversed && t.sourceMovementId === movement.id).reduce((s, t) => s + t.amount, 0);
+    const available = Math.max(0, movement.amount - direct);
+    const reserved = Math.min(available, pooled[movement.currency] ?? 0);
+    pooled[movement.currency] = Math.max(0, (pooled[movement.currency] ?? 0) - reserved);
+    return { movement, remaining: available - reserved };
+  }).filter(r => r.remaining > 0.001);
 }
 
 export function vendorHeld(vendorId: string, currency: string, d: LedgerData): number {
@@ -88,7 +110,7 @@ export function vendorHeld(vendorId: string, currency: string, d: LedgerData): n
     .reduce((s, c) => s + c.amount, 0);
   const appliedOut = d.applications
     .filter((a) => a.active)
-    .filter((a) => d.movements.some((m) => m.id === a.movementId && m.payeeId === vendorId && m.currency === currency))
+    .filter((a) => { const s = balanceSource(a.movementId, d); return s?.payeeId === vendorId && s.currency === currency; })
     .reduce((s, a) => s + a.amount, 0);
   const transfersOut = d.transfers
     .filter((t) => t.fromVendorId === vendorId && !t.reversed && t.currency === currency)

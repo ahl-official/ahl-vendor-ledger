@@ -6,7 +6,7 @@ import { withErrors } from "@/lib/api";
 
 export const GET = withErrors(async () => {
   const d = await getAllData();
-  const withTotals = d.orders.map((o) => ({ ...o, ...orderSummary(o, d) }));
+  const withTotals = d.orders.filter(o => o.status !== "Cancelled").map((o) => ({ ...o, ...orderSummary(o, d) }));
   return NextResponse.json(withTotals);
 });
 

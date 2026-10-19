@@ -1,3 +1,5 @@
+import { voidGuard } from "@/lib/void-guard";
+import { getAllData } from "@/lib/data";
 import { NextResponse } from "next/server";
 import { updateRow } from "@/lib/sheets";
 import { withErrors } from "@/lib/api";
@@ -9,6 +11,9 @@ export const PATCH = withErrors(async (req: Request, { params }: { params: Promi
   const { id } = await params;
   const body = await req.json();
   const reason = String(body.reason ?? "Edited");
+  const guardData = await getAllData();
+  const guard = voidGuard(id, guardData);
+  if (guard) return NextResponse.json({ error: guard }, { status: 409 });
   await updateRow("Applications", id, { active: false, reversedReason: reason });
   return NextResponse.json({ id });
 });

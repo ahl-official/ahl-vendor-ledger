@@ -89,7 +89,7 @@ function AgentFxContent() {
     setSaving(true);
     try {
       if (editId) {
-        const delRes = await fetch(`/api/fx-conversions/${editId}`, { method: "DELETE" });
+        const delRes = await fetch(`/api/fx-conversions/${editId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: "Corrected from Agent FX" }) });
         if (!delRes.ok) {
           const dErr = await delRes.json().catch(() => ({}));
           throw new Error(dErr.error || "Failed to update previous entry");

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAllData } from "@/lib/data";
 import { orderSummary } from "@/lib/ledger";
-import type { MovementType, PaymentUse } from "@/lib/schema";
+import { MOVEMENT_TYPES, type MovementType, type PaymentUse } from "@/lib/schema";
 import { appendRow, newId } from "@/lib/sheets";
 import { registerOptionIfNew } from "@/lib/options";
 import { withErrors } from "@/lib/api";
@@ -15,11 +15,17 @@ export const POST = withErrors(async (req: Request) => {
   const body = await req.json();
   const type = body.type as MovementType;
   const amount = Number(body.amount);
-  if (!type) return NextResponse.json({ error: "Movement type is required" }, { status: 400 });
+  if (!MOVEMENT_TYPES.includes(type as typeof MOVEMENT_TYPES[number]) && !(type === "LegacyCompanyToVendor" && body.editId)) return NextResponse.json({ error: "Movement type is required" }, { status: 400 });
   if (!body.payerId || !body.payeeId) return NextResponse.json({ error: "Payer and payee are required" }, { status: 400 });
-  if (!amount || amount <= 0) return NextResponse.json({ error: "Amount must be greater than 0" }, { status: 400 });
+  if (!Number.isFinite(amount) || amount <= 0) return NextResponse.json({ error: "Amount must be greater than 0" }, { status: 400 });
 
-  const isVendorReceipt = type === "AgentToVendor";
+  const d = await getAllData();
+  const payer = d.contacts.find(c => c.id === body.payerId && c.active);
+  const payee = d.contacts.find(c => c.id === body.payeeId && c.active);
+  if (type === "LegacyCompanyToVendor" && !d.movements.some(m => m.id === body.editId && m.type === "LegacyCompanyToVendor")) return NextResponse.json({ error: "Historical flow is only for correcting an imported payment" }, { status: 400 });
+  const roles = type === "CompanyToAgent" ? ["Company", "Agent"] : type === "AgentToCompany" ? ["Agent", "Company"] : type === "LegacyCompanyToVendor" ? ["Company", "Vendor"] : ["Agent", "Vendor"];
+  if (!payer || !payee || payer.id === payee.id || !payer.roles.some(r => r === roles[0]) || !payee.roles.some(r => r === roles[1])) return NextResponse.json({ error: "Payer and recipient must match the selected money flow" }, { status: 400 });
+  const isVendorReceipt = type === "AgentToVendor" || type === "LegacyCompanyToVendor";
   const paymentUse = (isVendorReceipt ? (body.paymentUse as PaymentUse) : "") || "";
   if (isVendorReceipt && !paymentUse) {
     return NextResponse.json({ error: "Choose Order only / On-account only / Order + on-account" }, { status: 400 });
@@ -43,6 +49,7 @@ export const POST = withErrors(async (req: Request) => {
     const d = await getAllData();
     const order = d.orders.find((o) => o.id === orderId);
     if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    if (order.vendorId !== body.payeeId || order.currency !== (body.currency || "USD") || order.status === "Cancelled" || order.totalKnown === false) return NextResponse.json({ error: "Choose a confirmed order for this vendor in the same currency" }, { status: 400 });
     const { due } = orderSummary(order, d);
     if (appliedAmount - due > 0.01) {
       return NextResponse.json({ error: `Order only has ${due} due — can't apply more than that` }, { status: 400 });

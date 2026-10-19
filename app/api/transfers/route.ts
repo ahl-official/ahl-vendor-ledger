@@ -1,141 +1,48 @@
-// Spends part of a vendor's held balance on something other than its own order:
-// Transfer (to another vendor), PaySupplier (external, no held balance created), or Refund.
 import { NextResponse } from "next/server";
 import { getAllData } from "@/lib/data";
-import { movementRemaining, orderSummary } from "@/lib/ledger";
-import type { TransferPurpose } from "@/lib/schema";
-import { appendRow, newId } from "@/lib/sheets";
+import { orderSummary, vendorHeld, vendorOpenReceipts } from "@/lib/ledger";
+import { appendRowsAtomic, newId } from "@/lib/sheets";
 import { withErrors } from "@/lib/api";
 
 export const POST = withErrors(async (req: Request) => {
   const body = await req.json();
-  const purpose = body.purpose as TransferPurpose;
-  const sourceMovementId = String(body.sourceMovementId ?? "");
-  const fromVendorId = String(body.fromVendorId ?? "");
   const amount = Number(body.amount);
-  if (!purpose) return NextResponse.json({ error: "Purpose is required" }, { status: 400 });
-  if (!fromVendorId) {
-    return NextResponse.json({ error: "Source vendor is required" }, { status: 400 });
-  }
-  if (!amount || amount <= 0) return NextResponse.json({ error: "Amount must be greater than 0" }, { status: 400 });
-  if (purpose !== "Refund" && !body.toContactId) {
-    return NextResponse.json({ error: "Recipient is required" }, { status: 400 });
-  }
-
-  // A vendor-to-vendor transfer can be split the same three ways a vendor receipt can: all to
-  // one order, all held on the receiving vendor's account, or part of each in one action.
-  const paymentUse = purpose === "Transfer" ? (body.paymentUse as string | undefined) : undefined;
-  let appliedAmount = 0;
-  let orderId = "";
-  if (paymentUse === "OrderOnly" || paymentUse === "OrderPlusOnAccount") {
-    orderId = String(body.receivingOrderId ?? "");
-    appliedAmount = paymentUse === "OrderOnly" ? amount : Number(body.appliedAmount ?? 0);
-    if (!orderId) return NextResponse.json({ error: "Choose the order being paid" }, { status: 400 });
-    if (!appliedAmount || appliedAmount <= 0) {
-      return NextResponse.json({ error: "Enter how much of this transfer applies to the order" }, { status: 400 });
-    }
-    if (appliedAmount > amount) {
-      return NextResponse.json({ error: "Applied amount can't exceed the transfer amount" }, { status: 400 });
-    }
-  } else if (!paymentUse && body.receivingOrderId) {
-    orderId = String(body.receivingOrderId);
-    appliedAmount = amount;
-  }
-
+  const purpose = String(body.purpose);
   const d = await getAllData();
-  const sourceMovement = sourceMovementId ? d.movements.find((m) => m.id === sourceMovementId) : null;
-  const currency = body.currency ?? sourceMovement?.currency ?? "USD";
-
+  const from = d.contacts.find(c => c.id === body.fromVendorId && c.active && c.roles.includes("Vendor"));
+  const to = d.contacts.find(c => c.id === body.toContactId && c.active);
+  if (!from || !["Transfer", "PaySupplier", "Refund"].includes(purpose)) return NextResponse.json({ error: "Choose a valid source vendor and purpose" }, { status: 400 });
+  if (!to || to.id === from.id || (purpose === "Transfer" && !to.roles.includes("Vendor")) || (purpose === "PaySupplier" && !to.roles.includes("Supplier")) || (purpose === "Refund" && !to.roles.includes("Company"))) return NextResponse.json({ error: "Choose a valid recipient for this type of payment" }, { status: 400 });
+  if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.001) return NextResponse.json({ error: "Enter a positive amount with at most two decimals" }, { status: 400 });
+  const allSources = vendorOpenReceipts(from.id, d);
+  const currency = String(body.currency || allSources.find(r => r.movement.id === body.sourceMovementId)?.movement.currency || "RMB");
+  const paymentUse = String(body.paymentUse || "");
+  if (paymentUse && !["OrderOnly", "OnAccountOnly", "OrderPlusOnAccount"].includes(paymentUse)) return NextResponse.json({ error: "Choose a valid payment use" }, { status: 400 });
+  const orderId = purpose === "Transfer" && paymentUse !== "OnAccountOnly" ? String(body.receivingOrderId || "") : "";
+  const applied = orderId ? paymentUse === "OrderPlusOnAccount" ? Number(body.appliedAmount) : amount : 0;
+  if (["OrderOnly", "OrderPlusOnAccount"].includes(paymentUse) && !orderId) return NextResponse.json({ error: "Choose the receiving order" }, { status: 400 });
   if (orderId) {
-    const order = d.orders.find((o) => o.id === orderId);
-    if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
-    const { due } = orderSummary(order, d);
-    if (appliedAmount - due > 0.01) {
-      return NextResponse.json({ error: `Order only has ${due} due — can't apply more than that` }, { status: 400 });
-    }
+    const order = d.orders.find(o => o.id === orderId);
+    if (!order || order.vendorId !== to.id || order.currency !== currency || order.totalKnown === false || order.status === "Cancelled") return NextResponse.json({ error: "Choose a confirmed order belonging to the recipient in the same currency" }, { status: 400 });
+    if (!Number.isFinite(applied) || applied <= 0 || applied > amount || applied - orderSummary(order, d).due > 0.001) return NextResponse.json({ error: "Applied amount exceeds the transfer or order due" }, { status: 400 });
   }
-
-  const toContactId = purpose === "Refund" ? (body.toContactId ?? "") : body.toContactId;
+  const sources = allSources.filter(r => r.movement.currency === currency && (!body.sourceMovementId || r.movement.id === body.sourceMovementId));
+  if (amount - vendorHeld(from.id, currency, d) > 0.001 || amount - sources.reduce((s, r) => s + r.remaining, 0) > 0.001) return NextResponse.json({ error: "Available funds in this vendor/currency/source cannot cover the whole payment" }, { status: 400 });
   const createdAt = new Date().toISOString();
-
-  // If specific movement was selected
-  if (sourceMovementId) {
-    const remaining = movementRemaining(sourceMovementId, d);
-    if (amount - remaining > 0.01) {
-      return NextResponse.json({ error: `Only ${remaining.toFixed(2)} is still held from this receipt` }, { status: 400 });
-    }
-    const base = { fromVendorId, sourceMovementId, toContactId, purpose, currency, proofUrl: body.proofUrl ?? "", note: body.note ?? "", reversed: false, reversedReason: "", createdAt };
-    const onAccountAmount = orderId ? amount - appliedAmount : amount;
-    const ids: string[] = [];
-    if (orderId) {
-      const id = newId("TRF");
-      await appendRow("Transfers", { id, ...base, amount: appliedAmount, receivingOrderId: orderId });
-      ids.push(id);
-    }
-    if (onAccountAmount > 0.01) {
-      const id = newId("TRF");
-      await appendRow("Transfers", { id, ...base, amount: onAccountAmount, receivingOrderId: "" });
-      ids.push(id);
-    }
-    return NextResponse.json({ id: ids[0] });
+  let needed = amount, appliedNeeded = applied;
+  const records = [];
+  for (const s of sources) {
+    const used = Math.round(Math.min(needed, s.remaining) * 100) / 100;
+    if (used <= 0) break;
+    const onOrder = Math.round(Math.min(used, appliedNeeded) * 100) / 100;
+    const base = { fromVendorId: from.id, sourceMovementId: s.movement.id, toContactId: to.id, purpose, currency, proofUrl: String(body.proofUrl || ""), note: String(body.note || ""), reversed: false, reversedReason: "", createdAt, date: String(body.date || createdAt.slice(0, 10)) };
+    if (onOrder > 0) records.push({ id: newId("TRF"), ...base, amount: onOrder, receivingOrderId: orderId });
+    const held = Math.round((used - onOrder) * 100) / 100;
+    if (held > 0) records.push({ id: newId("TRF"), ...base, amount: held, receivingOrderId: "" });
+    needed = Math.round((needed - used) * 100) / 100;
+    appliedNeeded = Math.round((appliedNeeded - onOrder) * 100) / 100;
   }
-
-  // If spending from total held balance FIFO across open receipts
-  const { vendorHeld, vendorOpenReceipts } = await import("@/lib/ledger");
-  const totalHeld = vendorHeld(fromVendorId, currency, d);
-  if (amount - totalHeld > 0.01) {
-    return NextResponse.json({ error: `Vendor only holds ${currency} ${totalHeld.toFixed(2)} in total balance` }, { status: 400 });
-  }
-
-  const openReceipts = vendorOpenReceipts(fromVendorId, d).filter((r) => r.movement.currency === currency);
-  if (openReceipts.length === 0) {
-    return NextResponse.json({ error: `Vendor has no open balance in ${currency}` }, { status: 400 });
-  }
-
-  // vendorHeld() (checked above) includes money that arrived via a vendor-to-vendor
-  // Transfer-in or a Credit Note, which have no movementId of their own and so are
-  // invisible to vendorOpenReceipts() below -- only original AgentToVendor receipts can
-  // actually be drawn from here. Without this check, a vendor whose held balance is
-  // partly non-receipt money could pass the totalHeld check above but the FIFO loop
-  // below would run out of receipts partway through, silently creating Transfer rows
-  // that sum to LESS than the requested amount while still reporting success. Fail
-  // loudly instead, before writing anything.
-  const receiptsAvailable = openReceipts.reduce((s, r) => s + r.remaining, 0);
-  if (amount - receiptsAvailable > 0.01) {
-    return NextResponse.json({
-      error: `Only ${currency} ${receiptsAvailable.toFixed(2)} of the ${currency} ${totalHeld.toFixed(2)} total held is available to spend this way — the rest arrived via a vendor-to-vendor transfer or credit note, which can't be re-spent through this screen yet.`,
-    }, { status: 400 });
-  }
-
-  let remainingNeeded = amount;
-  let remainingAppliedNeeded = appliedAmount;
-  const ids: string[] = [];
-
-  for (const r of openReceipts) {
-    if (remainingNeeded <= 0.001) break;
-    const spendFromThis = Math.min(r.remaining, remainingNeeded);
-    const base = { fromVendorId, sourceMovementId: r.movement.id, toContactId, purpose, currency, proofUrl: body.proofUrl ?? "", note: body.note ?? "", reversed: false, reversedReason: "", createdAt };
-
-    let toApply = 0;
-    if (remainingAppliedNeeded > 0) {
-      toApply = Math.min(spendFromThis, remainingAppliedNeeded);
-      remainingAppliedNeeded -= toApply;
-    }
-    const toOnAccount = spendFromThis - toApply;
-
-    if (toApply > 0.001 && orderId) {
-      const id = newId("TRF");
-      await appendRow("Transfers", { id, ...base, amount: toApply, receivingOrderId: orderId });
-      ids.push(id);
-    }
-    if (toOnAccount > 0.001) {
-      const id = newId("TRF");
-      await appendRow("Transfers", { id, ...base, amount: toOnAccount, receivingOrderId: "" });
-      ids.push(id);
-    }
-
-    remainingNeeded -= spendFromThis;
-  }
-
-  return NextResponse.json({ id: ids[0] });
+  if (needed > 0.001 || appliedNeeded > 0.001) throw Error("Balance sources did not cover the full payment");
+  await appendRowsAtomic("Transfers", records);
+  return NextResponse.json({ id: records[0].id, ids: records.map(r => r.id) });
 });

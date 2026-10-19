@@ -84,3 +84,14 @@ Pushed to GitHub (`ahl-official/ahl-vendor-ledger`) and deployed on Vercel. When
 1. **Opening balances** — start every vendor/agent at zero (current state), or migrate signed-off opening balances from the old ledger? Needs real figures per contact/currency; CONTEXT.md recommends never replaying old live payments.
 2. **Review-separately contacts** — confirm roles for Faye, MS DU, MS Huang, 润驰耐丝, Kevin before relying on them in reporting.
 3. Confirm both operating users (Accounts, Purchase) get free create access per CONTEXT.md, with the other just notified.
+
+## Historical data migration
+
+Use the existing Ledger contact lookup to see each vendor's held balance, orders and
+transactions. Agent positions stay separate by currency and use the recorded FX links.
+Existing correction screens remain available; corrections void an old financial row
+and record its replacement, retaining the source history. No new account pages were added.
+
+Migration preparation is offline: node --experimental-strip-types scripts/prepare-migration.ts.
+Private frozen snapshots, backups, mapping and checks are in the ignored secrets/recovery
+directory. Never rerun a workbook replacement after real activity has begun.

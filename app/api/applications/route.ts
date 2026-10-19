@@ -1,84 +1,32 @@
-// "Apply to Order" from an existing held balance — spends part of a past receipt
-// (or from the vendor's total held balance) against an order without creating a new cash receipt.
 import { NextResponse } from "next/server";
 import { getAllData } from "@/lib/data";
-import { movementRemaining, orderSummary, vendorHeld, vendorOpenReceipts } from "@/lib/ledger";
-import { appendRow, newId } from "@/lib/sheets";
+import { orderSummary, vendorHeld, vendorOpenReceipts } from "@/lib/ledger";
+import { appendRowsAtomic, newId } from "@/lib/sheets";
 import { withErrors } from "@/lib/api";
 
 export const POST = withErrors(async (req: Request) => {
   const body = await req.json();
-  const movementId = String(body.movementId ?? "");
-  const vendorId = String(body.vendorId ?? "");
-  const orderId = String(body.orderId ?? "");
   const amount = Number(body.amount);
-
-  if ((!movementId && !vendorId) || !orderId) {
-    return NextResponse.json({ error: "Vendor/source balance and order are required" }, { status: 400 });
-  }
-  if (!amount || amount <= 0) return NextResponse.json({ error: "Amount must be greater than 0" }, { status: 400 });
-
   const d = await getAllData();
-  const order = d.orders.find((o) => o.id === orderId);
+  const order = d.orders.find(o => o.id === body.orderId);
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
-
+  if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.001) return NextResponse.json({ error: "Enter a positive amount with at most two decimals" }, { status: 400 });
+  if (order.status === "Cancelled" || order.totalKnown === false) return NextResponse.json({ error: "Confirm this order's total before applying funds; cancelled orders cannot be paid" }, { status: 400 });
+  if (body.vendorId && body.vendorId !== order.vendorId) return NextResponse.json({ error: "Balance must belong to the order's vendor" }, { status: 400 });
   const { due } = orderSummary(order, d);
-  if (amount - due > 0.01) {
-    return NextResponse.json({ error: `Order only has ${order.currency} ${due.toFixed(2)} due` }, { status: 400 });
-  }
-
-  // If specific movementId is given
-  if (movementId) {
-    const remaining = movementRemaining(movementId, d);
-    if (amount - remaining > 0.01) {
-      return NextResponse.json({ error: `Only ${remaining.toFixed(2)} is still held from this receipt` }, { status: 400 });
-    }
-
-    const id = newId("APP");
-    await appendRow("Applications", {
-      id,
-      movementId,
-      orderId,
-      amount,
-      active: true,
-      reversedReason: "",
-      createdAt: new Date().toISOString(),
-    });
-    return NextResponse.json({ id });
-  }
-
-  // If vendorId is given: spend from total held balance across open receipts FIFO
-  const actualVendorId = vendorId || order.vendorId;
-  const totalHeld = vendorHeld(actualVendorId, order.currency, d);
-  if (amount - totalHeld > 0.01) {
-    return NextResponse.json({ error: `Vendor only holds ${order.currency} ${totalHeld.toFixed(2)} in total balance` }, { status: 400 });
-  }
-
-  const openReceipts = vendorOpenReceipts(actualVendorId, d).filter((r) => r.movement.currency === order.currency);
-  if (openReceipts.length === 0) {
-    return NextResponse.json({ error: `Vendor has no open balance in ${order.currency}` }, { status: 400 });
-  }
-
-  let remainingNeeded = amount;
-  const createdIds: string[] = [];
+  if (amount - due > 0.001 || amount - vendorHeld(order.vendorId, order.currency, d) > 0.001) return NextResponse.json({ error: "Amount exceeds the order due or the vendor's held balance in this currency" }, { status: 400 });
+  const sources = vendorOpenReceipts(order.vendorId, d).filter(r => r.movement.currency === order.currency && (!body.movementId || r.movement.id === body.movementId));
+  if (amount - sources.reduce((s, r) => s + r.remaining, 0) > 0.001) return NextResponse.json({ error: "The selected source cannot cover this amount for this vendor and currency" }, { status: 400 });
   const createdAt = new Date().toISOString();
-
-  for (const r of openReceipts) {
-    if (remainingNeeded <= 0.001) break;
-    const spendFromThis = Math.min(r.remaining, remainingNeeded);
-    const id = newId("APP");
-    await appendRow("Applications", {
-      id,
-      movementId: r.movement.id,
-      orderId,
-      amount: spendFromThis,
-      active: true,
-      reversedReason: "",
-      createdAt,
-    });
-    createdIds.push(id);
-    remainingNeeded -= spendFromThis;
+  let needed = amount;
+  const records = [];
+  for (const source of sources) {
+    const used = Math.round(Math.min(needed, source.remaining) * 100) / 100;
+    if (used <= 0) break;
+    records.push({ id: newId("APP"), movementId: source.movement.id, orderId: order.id, amount: used, active: true, reversedReason: "", createdAt, date: String(body.date || createdAt.slice(0, 10)) });
+    needed = Math.round((needed - used) * 100) / 100;
   }
-
-  return NextResponse.json({ id: createdIds[0], ids: createdIds });
+  if (needed > 0.001) throw Error("Balance sources did not cover the full application");
+  await appendRowsAtomic("Applications", records);
+  return NextResponse.json({ id: records[0].id, ids: records.map(r => r.id) });
 });

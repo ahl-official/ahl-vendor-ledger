@@ -160,7 +160,7 @@ export default function OrdersPage() {
                 <option value="">-- Choose Order --</option>
                 {orders.map((o) => (
                   <option key={o.id} value={o.id}>
-                    {vendorName(o.vendorId)} · Inv: {o.invoiceRef || o.id} ({o.date}) — {o.currency} {o.total.toFixed(2)}
+                    {vendorName(o.vendorId)} · Inv: {o.invoiceRef || o.id} ({o.date}) — {o.totalKnown === false ? "Total unknown" : `${o.currency} ${o.total.toFixed(2)}`}
                   </option>
                 ))}
               </select>
@@ -249,7 +249,7 @@ export default function OrdersPage() {
                 <td>{vendorName(o.vendorId)}</td>
                 <td>{o.invoiceRef || "—"}</td>
                 <td>
-                  <div>{o.currency} {o.total.toFixed(2)}</div>
+                  <div>{o.totalKnown === false ? "Total unknown" : `${o.currency} ${o.total.toFixed(2)}`}</div>
                   {o.creditNotes && o.creditNotes > 0 ? (
                     <div style={{ fontSize: 11, color: "#059669", fontWeight: 500 }}>
                       Net: {o.currency} {(o.netCost ?? (o.total - o.creditNotes)).toFixed(2)}
@@ -258,7 +258,7 @@ export default function OrdersPage() {
                 </td>
                 <td>{o.currency} {o.paid.toFixed(2)}</td>
                 <td>
-                  <span className={`badge ${o.due <= 0 ? "ok" : "hold"}`}>{o.currency} {o.due.toFixed(2)}</span>
+                  <span className={`badge ${o.totalKnown === false || o.due > 0 ? "hold" : "ok"}`}>{o.totalKnown === false ? "Needs confirmation" : `${o.currency} ${o.due.toFixed(2)}`}</span>
                 </td>
                 <td style={{ textAlign: "right" }}>
                   <div

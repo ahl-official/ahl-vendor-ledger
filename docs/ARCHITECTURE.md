@@ -63,40 +63,42 @@ or "balance" number, check whether it's still representing each currency separat
 underneath, or whether it's actually summing/netting unrelated currencies. The latter
 is always wrong.
 
-### 4. A "receipt" is only `AgentToVendor`.
+### 4. New receipts and historical direct receipts
 
-There is no direct `CompanyToVendor` movement type — the vendor is always paid through
-an agent (`lib/ledger.ts` → `isReceipt()`). Only `AgentToVendor` movements can be
-applied to an order, held on-account, or spent later via Use Vendor Balance. If you add
-a new way for a vendor to receive money, you must decide whether it's a true "receipt"
-(and thus should flow through `isReceipt()`/`vendorOpenReceipts()`) or something else
-entirely (like a `Transfer` or `Credit_Notes` row, which are *separate* mechanisms — see
-rule 5).
+New payments use AgentToVendor, CompanyToAgent, or AgentToCompany. The 19 October
+migration also imports the old system's actual company-to-vendor payments as
+LegacyCompanyToVendor. This import-only type preserves the real payer; the normal
+POST route rejects it. isReceipt() recognizes both vendor receipt types.
 
-### 5. "Held balance" has THREE different sources — know which functions see which.
+### 5. Held funds have three spendable source kinds
 
-A vendor's displayed `vendorHeld()` total is the sum of:
-- **Receipts** (`AgentToVendor` movements) — tracked individually, with their own
-  `remaining` via `movementRemaining()` / `vendorOpenReceipts()`.
-- **Transfers in** (`purpose: "Transfer"`, `toContactId` = this vendor) — another
-  vendor sent part of their held balance here.
-- **Credit notes** (`Credit_Notes` rows for this vendor) — issued against a return.
+balanceSource() recognizes actual vendor receipts, incoming on-account Transfers,
+and Credit Notes. Applications.movementId and Transfers.sourceMovementId now reference
+one of these original source IDs; they do not necessarily reference Money_Movements.
+No new cash receipt is fabricated to represent transferred money.
 
-**`vendorOpenReceipts()` / `movementRemaining()` only see the first bucket** (original
-receipt movements with their own `movementId`). Transfers-in and credit-notes-in have
-no `movementId` of their own — they're not "receipts" in that sense.
+vendorOpenReceipts() retains its old API name but returns all three source kinds.
+Imported historical transfers whose source receipt was unspecified have an empty
+sourceMovementId: their outgoing value is reserved FIFO across the sender's sources.
+New spending always names the actual source. Both the aggregate vendorHeld() total
+and the sum of remaining source funds must agree, in each currency.
 
-**This is the most dangerous trap in the codebase.** Any code path that needs to *spend*
-a vendor's balance (Use Vendor Balance, or a "spend from total held balance" shortcut)
-must decide up front whether it's spending from one specific receipt (fine — use
-`movementRemaining()`), or from the vendor's *aggregate* `vendorHeld()` total. If it
-validates against the aggregate total but then tries to find the money by walking
-`vendorOpenReceipts()`, **it will come up short whenever any of that balance came from
-a Transfer-in or a Credit Note** — because those never show up in that list. Before
-trusting (or writing) any "spend from total balance" feature, trace exactly which
-sub-total it validates against and which sub-total it draws the money from. They must
-match, or you need a FIFO/allocation step that also accounts for transfers-in and
-credit-notes-in as separate "sources," not just receipts.
+A transfer directly paying a receiving order contributes to orderPaid(), and contributes
+zero held funds for that recipient. Later applications of an on-account transfer use
+that transfer ID as their source. The same source may not be spent twice.
+
+FIFO applications/transfers are validated in full and saved by appendRowsAtomic() in
+one Sheets appendCells request, so a request cannot report success after half a spend.
+Voiding a source is blocked while dependent onward spending remains. Imported rows
+retain legacyId. Existing edit screens can void them and append corrected replacements;
+original rows and the frozen source remain available for audit. Never overwrite/delete
+the original financial event.
+
+Legacy orders keep totalKnown=false when the source total was unknown, and preserve
+legacyTotal when a detailed item breakdown does not exist. Never display these unknown
+orders as settled or accept a new application until the total is confirmed. Cancelled
+orders remain in history and are omitted from active lists. Legacy_Records preserves
+original source rows and pending/open obligations without inventing money movements.
 
 ### 6. Money math changes need a live test, not just a build pass.
 
@@ -110,7 +112,7 @@ in code review and were only caught by actually running the numbers (see
 
 ## Data model
 
-Six financial tabs, plus `Contacts`, `Orders`/`Order_Items`, and `Custom_Options`
+Financial tabs, plus `Contacts`, `Orders`/`Order_Items`, and `Custom_Options`
 (a small UX convenience, not financial). Full column list: `lib/schema.ts` → `SHEETS`.
 
 | Tab | What it records | Key fields |
@@ -124,7 +126,7 @@ Six financial tabs, plus `Contacts`, `Orders`/`Order_Items`, and `Custom_Options
 | `Credit_Notes` | A vendor-issued return/credit against one order, credited back to that vendor's held balance. | `orderId`, `vendorId`, `amount` |
 | `Custom_Options` | Remembers free-typed "Other" values for the Reference/Method dropdowns so they're reusable. Not financial — safe to clear/edit freely. | `field`, `value` |
 
-Every financial row (all tables except `Custom_Options` and `Contacts`) has
+Every current financial event (all tables except `Custom_Options` and `Contacts`) has
 `reversed`/`active` + `reversedReason` + `createdAt`, following rule 1.
 
 ## Request flow for a typical mutation

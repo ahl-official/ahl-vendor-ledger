@@ -6,11 +6,11 @@
 
 export const SHEETS = {
   Contacts: [
-    "id", "name", "roles", "contact", "notes", "active", "legacyId", "createdAt",
+    "id", "name", "roles", "contact", "notes", "active", "legacyId", "createdAt", "region",
   ],
   Orders: [
     "id", "vendorId", "invoiceRef", "date", "currency", "shippingFee", "adjustment",
-    "notes", "proofUrl", "createdAt",
+    "notes", "proofUrl", "createdAt", "legacyTotal", "totalKnown", "status", "legacyId", "reviewNote",
   ],
   Order_Items: [
     "id", "orderId", "description", "sku", "qty", "unit", "unitPrice", "lineTotal", "createdAt",
@@ -24,18 +24,18 @@ export const SHEETS = {
     "actualRate", "quotedRate", "agentFee",
     "paymentUse", // OrderOnly | OnAccountOnly | OrderPlusOnAccount | "" (non-vendor movement)
     "method", "reference", "proofUrl", "note",
-    "reversed", "reversedReason", "idempotencyKey", "createdAt", "createdBy",
+    "reversed", "reversedReason", "idempotencyKey", "createdAt", "createdBy", "legacyId",
   ],
   // Spends part (or all) of a vendor receipt against an order.
   Applications: [
-    "id", "movementId", "orderId", "amount", "active", "reversedReason", "createdAt",
+    "id", "movementId", "orderId", "amount", "active", "reversedReason", "createdAt", "date", "legacyId",
   ],
   // Spends part (or all) of a vendor's held balance on something other than "its own order":
   // another vendor, an external supplier, or a refund back out of the system.
   Transfers: [
     "id", "sourceMovementId", "fromVendorId", "toContactId", "purpose",
     "amount", "currency", "receivingOrderId", "proofUrl", "note",
-    "reversed", "reversedReason", "createdAt",
+    "reversed", "reversedReason", "createdAt", "date", "legacyId",
   ],
   // Explicitly links an agent's INR funding (a CompanyToAgent movement) to the RMB (or
   // other-currency) payout it paid for (an AgentToVendor/AgentToCompany movement). Never
@@ -44,7 +44,7 @@ export const SHEETS = {
   FX_Conversions: [
     "id", "agentId", "fundingMovementId", "spendMovementId",
     "fromCurrency", "fromAmount", "toCurrency", "toAmount",
-    "note", "reversed", "reversedReason", "createdAt",
+    "note", "reversed", "reversedReason", "createdAt", "legacyId",
   ],
   // Credit note / return issued by a vendor for an unsatisfactory or returned order.
   // Credits the amount back to the vendor's held balance for future use, and reduces order net cost.
@@ -55,6 +55,11 @@ export const SHEETS = {
   // Remembers every free-typed "Other" value for Reference/Method so it becomes a normal
   // dropdown option from then on, for everyone -- never typed twice. See lib/options.ts.
   Custom_Options: ["id", "field", "value", "createdAt"],
+  // Historical obligations and source history. Pending/open rows are not cash movements.
+  Legacy_Records: [
+    "id", "kind", "vendorId", "toContactId", "orderId", "date", "currency", "amount",
+    "status", "description", "proofUrl", "sourceTab", "sourceId", "sourceData",
+  ],
 } as const;
 
 export type SheetName = keyof typeof SHEETS;
@@ -68,7 +73,8 @@ export type Role = (typeof ROLES)[number];
 export const MOVEMENT_TYPES = [
   "CompanyToAgent", "AgentToCompany", "AgentToVendor",
 ] as const;
-export type MovementType = (typeof MOVEMENT_TYPES)[number];
+// Import-only: not offered by the normal Record Money form or accepted on POST.
+export type MovementType = (typeof MOVEMENT_TYPES)[number] | "LegacyCompanyToVendor";
 
 export const PAYMENT_USES = ["OrderOnly", "OnAccountOnly", "OrderPlusOnAccount"] as const;
 export type PaymentUse = (typeof PAYMENT_USES)[number];
@@ -78,12 +84,13 @@ export type TransferPurpose = (typeof TRANSFER_PURPOSES)[number];
 
 export interface Contact {
   id: string; name: string; roles: Role[]; contact: string; notes: string;
-  active: boolean; legacyId: string; createdAt: string;
+  active: boolean; legacyId: string; createdAt: string; region?: string;
 }
 
 export interface Order {
   id: string; vendorId: string; invoiceRef: string; date: string; currency: string;
   shippingFee: number; adjustment: number; notes: string; proofUrl: string; createdAt: string;
+  legacyTotal?: number | null; totalKnown?: boolean; status?: string; legacyId?: string; reviewNote?: string;
 }
 
 export interface OrderItem {
@@ -99,11 +106,13 @@ export interface MoneyMovement {
   method: string; reference: string; proofUrl: string; note: string;
   reversed: boolean; reversedReason: string; idempotencyKey: string;
   createdAt: string; createdBy: string;
+  legacyId?: string;
 }
 
 export interface Application {
   id: string; movementId: string; orderId: string; amount: number;
   active: boolean; reversedReason: string; createdAt: string;
+  date?: string; legacyId?: string;
 }
 
 export interface Transfer {
@@ -111,11 +120,12 @@ export interface Transfer {
   purpose: TransferPurpose; amount: number; currency: string;
   receivingOrderId: string; proofUrl: string; note: string;
   reversed: boolean; reversedReason: string; createdAt: string;
+  date?: string; legacyId?: string;
 }
 
 export interface FxConversion {
   id: string; agentId: string; fundingMovementId: string; spendMovementId: string;
-  fromCurrency: string; fromAmount: number; toCurrency: string; toAmount: number;
+  fromCurrency: string; fromAmount: number; toCurrency: string; toAmount: number; legacyId?: string;
   note: string; reversed: boolean; reversedReason: string; createdAt: string;
 }
 
@@ -129,6 +139,12 @@ export type OptionField = (typeof OPTION_FIELDS)[number];
 
 export interface CustomOption {
   id: string; field: OptionField; value: string; createdAt: string;
+}
+
+export interface LegacyRecord {
+  id: string; kind: string; vendorId: string; toContactId: string; orderId: string;
+  date: string; currency: string; amount: number; status: string; description: string;
+  proofUrl: string; sourceTab: string; sourceId: string; sourceData: string;
 }
 
 // Starting choices for the Reference and Method dropdowns. Whatever someone types under
