@@ -70,6 +70,12 @@ migration also imports the old system's actual company-to-vendor payments as
 LegacyCompanyToVendor. This import-only type preserves the real payer; the normal
 POST route rejects it. isReceipt() recognizes both vendor receipt types.
 
+An import may also carry forward a confirmed fiscal-year opening balance as
+OpeningBalance in Money_Movements. It has no payer, method, or exchange rate and
+does not change company or agent cash positions. It is a spendable vendor source,
+labeled as an opening balance in the existing statement. It is not offered by the
+new-payment form or accepted by its POST handler.
+
 ### 5. Held funds have three spendable source kinds
 
 balanceSource() recognizes actual vendor receipts, incoming on-account Transfers,

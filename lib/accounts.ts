@@ -11,8 +11,8 @@ export function vendorAccount(vendorId: string, d: LedgerData) {
   const name = (id: string) => contactName(id, d.contacts);
   const orders = d.orders.filter(o => o.vendorId === vendorId).map(o => ({ ...o, ...orderSummary(o, d) }));
   const events: StatementEvent[] = [];
-  for (const m of d.movements.filter(m => m.payeeId === vendorId && (m.type === "AgentToVendor" || m.type === "LegacyCompanyToVendor"))) {
-    events.push({ id: m.id, kind: "movement", date: m.date, createdAt: m.createdAt, label: `Received from ${name(m.payerId)}`, currency: m.currency, credited: m.amount, debited: 0, balance: 0, reversed: m.reversed, note: m.note, proofUrl: m.proofUrl, legacy: !!m.legacyId });
+  for (const m of d.movements.filter(m => m.payeeId === vendorId && (m.type === "AgentToVendor" || m.type === "LegacyCompanyToVendor" || m.type === "OpeningBalance"))) {
+    events.push({ id: m.id, kind: "movement", date: m.date, createdAt: m.createdAt, label: m.type === "OpeningBalance" ? "Opening balance carried forward" : `Received from ${name(m.payerId)}`, currency: m.currency, credited: m.amount, debited: 0, balance: 0, reversed: m.reversed, note: m.note, proofUrl: m.proofUrl, legacy: !!m.legacyId });
   }
   for (const t of d.transfers.filter(t => t.fromVendorId === vendorId || (t.purpose === "Transfer" && t.toContactId === vendorId))) {
     const incoming = t.fromVendorId !== vendorId;

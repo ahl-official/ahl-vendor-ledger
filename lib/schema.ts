@@ -74,7 +74,7 @@ export const MOVEMENT_TYPES = [
   "CompanyToAgent", "AgentToCompany", "AgentToVendor",
 ] as const;
 // Import-only: not offered by the normal Record Money form or accepted on POST.
-export type MovementType = (typeof MOVEMENT_TYPES)[number] | "LegacyCompanyToVendor";
+export type MovementType = (typeof MOVEMENT_TYPES)[number] | "LegacyCompanyToVendor" | "OpeningBalance";
 
 export const PAYMENT_USES = ["OrderOnly", "OnAccountOnly", "OrderPlusOnAccount"] as const;
 export type PaymentUse = (typeof PAYMENT_USES)[number];

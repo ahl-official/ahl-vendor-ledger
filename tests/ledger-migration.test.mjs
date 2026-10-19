@@ -69,3 +69,19 @@ test('a spent credit-note source has its own remaining amount', () => {
   d.applications.push({ id: 'apply', movementId: 'credit', orderId: 'next', amount: 50, active: true, date: '2026-08-02', createdAt: '2026-08-02' });
   assert.equal(vendorHeld('vendor', 'RMB', d), 30); assert.equal(movementRemaining('credit', d), 30);
 });
+
+test('opening balance funds orders without inventing an agent or company payment', () => {
+  const d = empty();
+  d.movements.push({ ...receipt('opening', 'vendor', 120, 'OpeningBalance'), payerId: '', method: '', reference: '', date: '2026-04-01' });
+  d.orders.push({ id: 'invoice', vendorId: 'vendor', currency: 'RMB', shippingFee: 0, adjustment: 0, legacyTotal: 90 });
+  d.applications.push({ id: 'use-opening', movementId: 'opening', orderId: 'invoice', amount: 90, active: true, date: '2026-04-08', createdAt: '2026-04-08' });
+  assert.equal(vendorHeld('vendor', 'RMB', d), 30);
+  assert.equal(movementRemaining('opening', d), 30);
+  assert.equal(orderSummary(d.orders[0], d).due, 0);
+  assert.deepEqual(agentPosition('company', d), {});
+  assert.equal(vendorAccount('vendor', d).events.find(e => e.id === 'opening').label, 'Opening balance carried forward');
+  d.movements[0].reversed = true;
+  d.applications[0].active = false;
+  assert.equal(vendorHeld('vendor', 'RMB', d), 0);
+  assert.equal(orderSummary(d.orders[0], d).due, 90);
+});

@@ -47,10 +47,10 @@ export function orderSummary(order: Order, d: LedgerData) {
   };
 }
 
-/** A "receipt" is a vendor-payee movement. The vendor is always paid through the agent, so this is
- *  just AgentToVendor -- there is no direct CompanyToVendor path. */
+/** Vendor funding sources, including import-only historical receipts and balance carried forward.
+ * OpeningBalance has no payer and does not represent a new cash payment or agent spend. */
 export function isReceipt(m: MoneyMovement): boolean {
-  return !m.reversed && (m.type === "AgentToVendor" || m.type === "LegacyCompanyToVendor");
+  return !m.reversed && (m.type === "AgentToVendor" || m.type === "LegacyCompanyToVendor" || m.type === "OpeningBalance");
 }
 
 /** How much of a receipt's amount is still unapplied / untransferred — what "Use Vendor Balance" can spend. */
