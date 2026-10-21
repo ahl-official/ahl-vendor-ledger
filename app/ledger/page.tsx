@@ -38,6 +38,7 @@ type Event = {
   runningBalance?: number | null;
   balances?: Record<string, number>;
   conversionIncluded?: boolean;
+  groupIds?: string[];
 };
 
 export default function LedgerPage() {
@@ -103,8 +104,8 @@ export default function LedgerPage() {
       out.push(...statement.events.filter(e => !e.reversed).map(e => ({
         id: e.id, kind: e.kind, date: e.date, createdAt: e.createdAt, label: e.label,
         amount: e.credited - e.debited, currency: e.currency, note: e.note,
-        editHref: e.kind === "movement" ? (movements.find(m => m.id === e.id)?.type === "OpeningBalance" ? null : `/payments/new?editId=${e.id}`) : e.kind === "credit_note" ? (creditNotes.find(c => c.id === e.id)?.orderId ? `/orders/${creditNotes.find(c => c.id === e.id)?.orderId}` : null) : `/vendor-balance?editId=${e.id}${e.kind === "application" ? "&kind=application" : ""}`,
-        credited: e.credited, debited: e.debited, runningBalance: e.balance,
+        editHref: (e.groupIds?.length ?? 1) > 1 ? null : e.kind === "movement" ? (movements.find(m => m.id === e.id)?.type === "OpeningBalance" ? null : `/payments/new?editId=${e.id}`) : e.kind === "credit_note" ? (creditNotes.find(c => c.id === e.id)?.orderId ? `/orders/${creditNotes.find(c => c.id === e.id)?.orderId}` : null) : `/vendor-balance?editId=${e.id}${e.kind === "application" ? "&kind=application" : ""}`,
+        credited: e.credited, debited: e.debited, runningBalance: e.balance, groupIds: e.groupIds,
       })));
     } else if (roleFilter === "Agent") {
       out.push(...agentStatement(selectedId, { contacts, orders, orderItems: [], movements, applications, transfers, fxConversions, creditNotes }).map(row => ({ ...row, kind: "movement" as const, editHref: `/payments/new?editId=${row.id}` })));
@@ -182,28 +183,31 @@ export default function LedgerPage() {
   // docs/ARCHITECTURE.md rule 1): the entry stays visible, struck-through, with a
   // "Corrected"/"Voided" badge, instead of vanishing with no trace.
   const handleDeleteTransaction = async (e: Event) => {
-    if (!window.confirm(`Void this transaction "${e.label}"?\n\nThe original record is kept in history. This removes its effect from balances.`)) {
+    const ids = e.groupIds?.length ? e.groupIds : [e.id];
+    if (!window.confirm(`Void this transaction "${e.label}"?\n\nThe original record${ids.length > 1 ? "s stay" : " stays"} in history. This removes ${ids.length > 1 ? "their" : "its"} effect from balances.`)) {
       return;
     }
     setDeletingId(e.id);
     setActionError("");
     try {
-      const endpoint =
+      const endpointFor = (id: string) =>
         e.kind === "movement"
-          ? `/api/movements/${e.id}`
+          ? `/api/movements/${id}`
           : e.kind === "transfer"
-          ? `/api/transfers/${e.id}`
+          ? `/api/transfers/${id}`
           : e.kind === "credit_note"
-          ? `/api/credit-notes/${e.id}`
-          : `/api/applications/${e.id}`;
-      const res = await fetch(endpoint, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "Voided from Ledger" }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error ?? "Failed to void transaction");
+          ? `/api/credit-notes/${id}`
+          : `/api/applications/${id}`;
+      // Sequential, not Promise.all: concurrent writes to the same sheet tab can race
+      // and silently drop one (see docs/DECISIONS.md, 2026-10-17 incident).
+      for (const id of ids) {
+        const res = await fetch(endpointFor(id), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "Voided from Ledger" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error ?? "Failed to void transaction");
       }
       loadLedger();
     } catch (err: unknown) {

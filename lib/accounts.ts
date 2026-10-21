@@ -4,6 +4,30 @@ export interface StatementEvent {
   id: string; kind: "movement" | "transfer" | "application" | "credit_note";
   date: string; createdAt: string; label: string; currency: string; credited: number; debited: number;
   balance: number; reversed: boolean; note: string; proofUrl: string; legacy: boolean;
+  groupIds?: string[];
+}
+
+/** One vendor-to-vendor transfer can write several Transfer rows (one per source receipt it
+ * drew from, see app/api/transfers/route.ts). Shown separately they look like unrelated
+ * part-payments; merge rows written by the same action (same moment, same label/currency/
+ * reversed state) back into one statement line, keeping every underlying id for void/edit. */
+function mergeTransferEvents(events: StatementEvent[]): StatementEvent[] {
+  const merged = new Map<string, StatementEvent>();
+  const order: StatementEvent[] = [];
+  for (const e of events) {
+    const key = `${e.createdAt}|${e.label}|${e.currency}|${e.reversed}`;
+    const existing = merged.get(key);
+    if (existing) {
+      existing.credited += e.credited;
+      existing.debited += e.debited;
+      existing.groupIds!.push(e.id);
+    } else {
+      const copy = { ...e, groupIds: [e.id] };
+      merged.set(key, copy);
+      order.push(copy);
+    }
+  }
+  return order;
 }
 
 /** A statement of actual held funds. Orders/expenses are separate commitments, not cash. */
@@ -14,12 +38,14 @@ export function vendorAccount(vendorId: string, d: LedgerData) {
   for (const m of d.movements.filter(m => m.payeeId === vendorId && (m.type === "AgentToVendor" || m.type === "CompanyToVendor" || m.type === "LegacyCompanyToVendor" || m.type === "OpeningBalance"))) {
     events.push({ id: m.id, kind: "movement", date: m.date, createdAt: m.createdAt, label: m.type === "OpeningBalance" ? "Opening balance carried forward" : `Received from ${name(m.payerId)}`, currency: m.currency, credited: m.amount, debited: 0, balance: 0, reversed: m.reversed, note: m.note, proofUrl: m.proofUrl, legacy: !!m.legacyId });
   }
+  const transferEvents: StatementEvent[] = [];
   for (const t of d.transfers.filter(t => t.fromVendorId === vendorId || (t.purpose === "Transfer" && t.toContactId === vendorId))) {
     const incoming = t.fromVendorId !== vendorId;
     const order = orders.find(o => o.id === t.receivingOrderId);
     const label = incoming ? `Transfer from ${name(t.fromVendorId)}${order ? ` · paid ${order.invoiceRef || order.id}` : " · on account"}` : `${t.purpose === "PaySupplier" ? "Supplier payment to" : t.purpose === "Refund" ? "Refund to" : "Transfer to"} ${name(t.toContactId)}`;
-    events.push({ id: t.id, kind: "transfer", date: t.date ?? t.createdAt.slice(0, 10), createdAt: t.createdAt, label, currency: t.currency, credited: incoming ? t.amount : 0, debited: !incoming || t.receivingOrderId ? t.amount : 0, balance: 0, reversed: t.reversed, note: t.note, proofUrl: t.proofUrl, legacy: !!t.legacyId });
+    transferEvents.push({ id: t.id, kind: "transfer", date: t.date ?? t.createdAt.slice(0, 10), createdAt: t.createdAt, label, currency: t.currency, credited: incoming ? t.amount : 0, debited: !incoming || t.receivingOrderId ? t.amount : 0, balance: 0, reversed: t.reversed, note: t.note, proofUrl: t.proofUrl, legacy: !!t.legacyId });
   }
+  events.push(...mergeTransferEvents(transferEvents));
   for (const a of d.applications) {
     // Include voided receipt history as well as applications of incoming transfers/credits.
     const source = balanceSource(a.movementId, d);
