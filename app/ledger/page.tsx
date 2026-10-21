@@ -319,7 +319,7 @@ export default function LedgerPage() {
                 <td className={e.inrAmount == null ? "muted" : e.inrAmount < 0 ? "error-text" : ""}>{e.inrAmount != null ? `${e.inrAmount < 0 ? "-" : "+"}₹${Math.abs(e.inrAmount).toFixed(2)}` : "—"}</td>
                 <td className={e.rmbAmount != null && e.rmbAmount > 0 ? "ledger-credit" : "muted"} title={e.conversionIncluded ? "Includes a confirmed currency conversion" : undefined}>{e.rmbAmount != null && e.rmbAmount > 0 ? `+¥${e.rmbAmount.toFixed(2)}` : "—"}</td>
                 <td className={e.rmbAmount != null && e.rmbAmount < 0 ? "error-text" : "muted"}>{e.rmbAmount != null && e.rmbAmount < 0 ? `-¥${Math.abs(e.rmbAmount).toFixed(2)}` : "—"}</td>
-                <td><span className={`badge ${(e.balanceRmb ?? 0) > 0.001 ? "hold" : (e.balanceRmb ?? 0) < -0.001 ? "err" : "ok"}`}>{(e.balanceRmb ?? 0) < 0 ? "-" : ""}¥{Math.abs(e.balanceRmb ?? 0).toFixed(2)}</span></td>
+                <td><span className={`badge ${(e.balanceRmb ?? 0) < -0.001 ? "err" : "ok"}`}>{(e.balanceRmb ?? 0) < 0 ? "-" : ""}¥{Math.abs(e.balanceRmb ?? 0).toFixed(2)}</span></td>
                 {extraAgentCurrencies.map(cur => <td key={cur}>{e.currency === cur ? `${e.amount < 0 ? "-" : "+"}${Math.abs(e.amount).toFixed(2)}` : "—"}<br /><span className="muted">{cur} {(e.balances?.[cur] ?? 0).toFixed(2)}</span></td>)}
                 <td className="muted"><LedgerNote text={e.note} proofUrl={proofById.get(e.id)} /></td>
                 <td style={{ textAlign: "right" }}><LedgerActions editHref={e.editHref} disabled={deletingId === e.id} onVoid={() => handleDeleteTransaction(e)} /></td>
