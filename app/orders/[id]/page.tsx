@@ -63,6 +63,7 @@ function OrderDetailContent() {
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
   const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
+  const [unlinkingAll, setUnlinkingAll] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   // Suggest applying the vendor's held balance (same currency) to an unpaid order.
@@ -149,6 +150,39 @@ function OrderDetailContent() {
     } finally {
       setUnlinkingId(null);
     }
+  };
+
+  const handleUnlinkAllPayments = async () => {
+    const payments = order?.appliedPayments ?? [];
+    if (!payments.length) return;
+    const total = payments.reduce((s, p) => s + p.amount, 0);
+    if (
+      !window.confirm(
+        `Unlink all ${payments.length} payments totaling ${order?.currency} ${total.toFixed(2)}?\n\nThis will remove every payment from this order and return the full amount to the vendor's held balance.`
+      )
+    ) {
+      return;
+    }
+
+    setUnlinkingAll(true);
+    setActionError("");
+    try {
+      // Sequential, not Promise.all: concurrent writes to the same sheet tab can race
+      // and silently drop one (see docs/DECISIONS.md, 2026-10-17 incident).
+      for (const payment of payments) {
+        const res = await fetch(`/api/${payment.kind === "transfer" ? "transfers" : "applications"}/${payment.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "Unlinked from order (bulk unlink all)" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error ?? "Failed to unlink one of the payments");
+      }
+      loadOrder();
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Failed to unlink all payments");
+    }
+    setUnlinkingAll(false);
   };
 
   const handleCreateCreditNote = async (e: React.FormEvent) => {
@@ -474,6 +508,17 @@ function OrderDetailContent() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <h2 style={{ margin: 0 }}>Applied Payments</h2>
           {payments.length === 0 && <span className="muted">No payments applied</span>}
+          {payments.length > 1 && (
+            <button
+              type="button"
+              className="btn secondary"
+              style={{ fontSize: 12, padding: "4px 8px" }}
+              disabled={unlinkingAll}
+              onClick={handleUnlinkAllPayments}
+            >
+              {unlinkingAll ? "Unlinking all..." : `Unlink all (${order.currency} ${payments.reduce((s, p) => s + p.amount, 0).toFixed(2)})`}
+            </button>
+          )}
         </div>
 
         {payments.length > 0 ? (
