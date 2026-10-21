@@ -33,6 +33,7 @@ function VendorBalanceContent() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [vendorId, setVendorId] = useState("");
+  const [date, setDate] = useState("");
   const [currency, setCurrency] = useState("RMB");
   const [action, setAction] = useState<(typeof ACTIONS)[number]["value"]>("apply");
   const [amount, setAmount] = useState("");
@@ -50,6 +51,10 @@ function VendorBalanceContent() {
   const [originalEditOrderId, setOriginalEditOrderId] = useState("");
   const [originalEditVendorId, setOriginalEditVendorId] = useState("");
   const [originalEditCurrency, setOriginalEditCurrency] = useState("");
+
+  useEffect(() => {
+    if (!editId) setDate(new Date().toISOString().slice(0, 10));
+  }, [editId]);
 
   const load = () => {
     fetchJson<{ vendors: VendorLedger[] }>("/api/ledger")
@@ -80,6 +85,7 @@ function VendorBalanceContent() {
           setToContactId(t.toContactId);
           setAmount(String(t.amount));
           setOriginalEditAmount(t.amount);
+          setDate(t.date ?? t.createdAt.slice(0, 10));
           setNote(t.note);
           setProofUrl(t.proofUrl);
           if (t.purpose === "Transfer") {
@@ -104,6 +110,7 @@ function VendorBalanceContent() {
           setOriginalEditOrderId(a.orderId);
           setAmount(String(a.amount));
           setOriginalEditAmount(a.amount);
+          setDate(a.date ?? a.createdAt.slice(0, 10));
         }
         setEditLoaded(true);
       })
@@ -189,7 +196,7 @@ function VendorBalanceContent() {
           ? await fetch("/api/applications", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ vendorId, orderId, amount: amt }),
+              body: JSON.stringify({ vendorId, orderId, amount: amt, date }),
             })
           : await fetch("/api/transfers", {
               method: "POST",
@@ -203,6 +210,7 @@ function VendorBalanceContent() {
                 paymentUse: isTransferSplit ? paymentUse : undefined,
                 receivingOrderId: isTransferSplit ? (paymentUse === "OnAccountOnly" ? "" : orderId) : orderId,
                 appliedAmount: isTransferSplit ? Number(effectiveApplied || 0) : undefined,
+                date,
                 note,
                 proofUrl,
               }),
@@ -312,6 +320,11 @@ function VendorBalanceContent() {
               <input disabled placeholder="Select a vendor first" />
             )}
           </div>
+        </div>
+
+        <div>
+          <label>Date</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
         </div>
 
         <div>
