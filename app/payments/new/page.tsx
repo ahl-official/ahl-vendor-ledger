@@ -138,6 +138,8 @@ function RecordMovementContent() {
       : "";
 
   const handleRmbChange = (val: string) => {
+    // Only allow typing digits and at most one decimal point — no scrolling or non-numeric chars
+    if (val !== "" && !/^\d*\.?\d*$/.test(val)) return;
     setRmbAmountOverride(val);
     const newRmb = Number(val);
     if (newRmb > 0 && numAmount > 0) {
@@ -246,7 +248,7 @@ function RecordMovementContent() {
         </div>
 
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-          <div><label>Amount</label><input type="number" value={amount} onChange={(e) => { setAmount(e.target.value); setRmbAmountOverride(null); }} required /></div>
+          <div><label>Amount</label><input type="number" value={amount} onChange={(e) => { setAmount(e.target.value); setRmbAmountOverride(null); }} onWheel={(e) => e.currentTarget.blur()} required /></div>
           <div>
             <label>Currency</label>
             <select value={currency} onChange={(e) => { setCurrency(e.target.value); setRmbAmountOverride(null); }}>
@@ -260,9 +262,9 @@ function RecordMovementContent() {
           <div className="card" style={{ background: "var(--soft)" }}>
             <p className="field-label">Agent rate &amp; charges (both optional, can apply together)</p>
             <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-              <div><label>Actual / reference rate</label><input type="number" step="any" value={actualRate} onChange={(e) => { setActualRate(e.target.value); setRmbAmountOverride(null); }} placeholder="e.g. 15" /></div>
-              <div><label>Agent's quoted rate</label><input type="number" step="any" value={quotedRate} onChange={(e) => { setQuotedRate(e.target.value); setRmbAmountOverride(null); }} placeholder="e.g. 15.20" /></div>
-              <div><label>Extra fee</label><input type="number" step="any" value={agentFee} onChange={(e) => setAgentFee(e.target.value)} /></div>
+              <div><label>Actual / reference rate</label><input type="number" step="any" value={actualRate} onChange={(e) => { setActualRate(e.target.value); setRmbAmountOverride(null); }} onWheel={(e) => e.currentTarget.blur()} placeholder="e.g. 15" /></div>
+              <div><label>Agent's quoted rate</label><input type="number" step="any" value={quotedRate} onChange={(e) => { setQuotedRate(e.target.value); setRmbAmountOverride(null); }} onWheel={(e) => e.currentTarget.blur()} placeholder="e.g. 15.20" /></div>
+              <div><label>Extra fee</label><input type="number" step="any" value={agentFee} onChange={(e) => setAgentFee(e.target.value)} onWheel={(e) => e.currentTarget.blur()} /></div>
             </div>
             {(currency === "INR" || currency === "USD") && (
               <div
@@ -292,10 +294,12 @@ function RecordMovementContent() {
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ fontSize: 18, fontWeight: 700, color: "#15803d" }}>¥</span>
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
                     value={displayRmb}
                     onChange={(e) => handleRmbChange(e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
                     placeholder="0.00"
                     style={{
                       width: 140,

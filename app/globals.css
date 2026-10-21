@@ -77,6 +77,16 @@ input, select, textarea {
   transition: border-color 0.15s ease, outline-color 0.15s ease;
 }
 
+/* Remove spin buttons on number inputs */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
 input:hover, select:hover, textarea:hover { border-color: var(--muted); }
 
 input:focus, select:focus, textarea:focus {
