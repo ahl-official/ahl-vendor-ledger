@@ -42,6 +42,7 @@ function RecordMovementContent() {
   const [actualRate, setActualRate] = useState("");
   const [quotedRate, setQuotedRate] = useState("");
   const [agentFee, setAgentFee] = useState("");
+  const [rmbAmountOverride, setRmbAmountOverride] = useState<string | null>(null);
   const [method, setMethod] = useState("");
   const [methodChoice, setMethodChoice] = useState("");
   const [reference, setReference] = useState("");
@@ -107,6 +108,48 @@ function RecordMovementContent() {
     [orders, payeeId, currency, orderId]
   );
   const selectedOrder = vendorOrders.find((o) => o.id === orderId);
+
+  const effectiveRate = Number(quotedRate || actualRate || 0);
+  const numAmount = Number(amount || 0);
+
+  const convertedRmb = useMemo(() => {
+    if (!effectiveRate || !numAmount) return null;
+    if (currency === "INR") {
+      return effectiveRate > 1 ? numAmount / effectiveRate : numAmount * effectiveRate;
+    }
+    if (currency === "USD") {
+      return effectiveRate > 1 ? numAmount * effectiveRate : numAmount / effectiveRate;
+    }
+    return null;
+  }, [effectiveRate, numAmount, currency]);
+
+  const convertedInr = useMemo(() => {
+    if (!effectiveRate || !numAmount) return null;
+    if (currency === "RMB") {
+      return numAmount * (effectiveRate > 1 ? effectiveRate : 1 / effectiveRate);
+    }
+    return null;
+  }, [effectiveRate, numAmount, currency]);
+
+  const displayRmb = rmbAmountOverride !== null
+    ? rmbAmountOverride
+    : convertedRmb != null
+      ? String(Number(convertedRmb.toFixed(2)))
+      : "";
+
+  const handleRmbChange = (val: string) => {
+    setRmbAmountOverride(val);
+    const newRmb = Number(val);
+    if (newRmb > 0 && numAmount > 0) {
+      if (currency === "INR") {
+        const calculatedRate = numAmount / newRmb;
+        setQuotedRate(String(Math.round(calculatedRate * 1000000) / 1000000));
+      } else if (currency === "USD") {
+        const calculatedRate = newRmb / numAmount;
+        setQuotedRate(String(Math.round(calculatedRate * 1000000) / 1000000));
+      }
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,7 +223,7 @@ function RecordMovementContent() {
       <form onSubmit={submit} className="card grid" style={{ gap: 16, maxWidth: 640 }}>
         <div>
           <label>Flow</label>
-          <select value={type} onChange={(e) => { const t = e.target.value as MovementType; setType(t); setCurrency(t === "AgentToVendor" || t === "CompanyToVendor" ? "RMB" : "INR"); setPayerId(""); setPayeeId(""); setPaymentUse(""); setOrderId(""); setActualRate(""); setQuotedRate(""); setAgentFee(""); }}>
+          <select value={type} onChange={(e) => { const t = e.target.value as MovementType; setType(t); setCurrency(t === "AgentToVendor" || t === "CompanyToVendor" ? "RMB" : "INR"); setPayerId(""); setPayeeId(""); setPaymentUse(""); setOrderId(""); setActualRate(""); setQuotedRate(""); setAgentFee(""); setRmbAmountOverride(null); }}>
             {availableTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
@@ -203,25 +246,100 @@ function RecordMovementContent() {
         </div>
 
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-          <div><label>Amount</label><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} required /></div>
+          <div><label>Amount</label><input type="number" value={amount} onChange={(e) => { setAmount(e.target.value); setRmbAmountOverride(null); }} required /></div>
           <div>
             <label>Currency</label>
-            <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            <select value={currency} onChange={(e) => { setCurrency(e.target.value); setRmbAmountOverride(null); }}>
               <option>RMB</option><option>INR</option><option>USD</option>
             </select>
           </div>
           <div><label>Date</label><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
         </div>
 
-        {(type === "CompanyToAgent" || type === "AgentToVendor") && (
+        {(type === "CompanyToAgent" || type === "AgentToVendor" || type === "CompanyToVendor") && (
           <div className="card" style={{ background: "var(--soft)" }}>
             <p className="field-label">Agent rate &amp; charges (both optional, can apply together)</p>
             <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-              <div><label>Actual / reference rate</label><input type="number" value={actualRate} onChange={(e) => setActualRate(e.target.value)} placeholder="e.g. 15" /></div>
-              <div><label>Agent's quoted rate</label><input type="number" value={quotedRate} onChange={(e) => setQuotedRate(e.target.value)} placeholder="e.g. 14.5" /></div>
-              <div><label>Extra fee</label><input type="number" value={agentFee} onChange={(e) => setAgentFee(e.target.value)} /></div>
+              <div><label>Actual / reference rate</label><input type="number" step="any" value={actualRate} onChange={(e) => { setActualRate(e.target.value); setRmbAmountOverride(null); }} placeholder="e.g. 15" /></div>
+              <div><label>Agent's quoted rate</label><input type="number" step="any" value={quotedRate} onChange={(e) => { setQuotedRate(e.target.value); setRmbAmountOverride(null); }} placeholder="e.g. 15.20" /></div>
+              <div><label>Extra fee</label><input type="number" step="any" value={agentFee} onChange={(e) => setAgentFee(e.target.value)} /></div>
             </div>
-            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>Extra fee is only if the agent actually charged one.</p>
+            {(currency === "INR" || currency === "USD") && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: "10px 14px",
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  borderRadius: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <span style={{ fontSize: 12, color: "#166534", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Converted Amount in RMB (Editable)
+                  </span>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                    {numAmount > 0 && effectiveRate > 0
+                      ? `${currency} ${numAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} @ rate ${effectiveRate}`
+                      : "Type RMB here to auto-fill quoted rate, or enter rate above"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 18, fontWeight: 700, color: "#15803d" }}>¥</span>
+                  <input
+                    type="number"
+                    step="any"
+                    value={displayRmb}
+                    onChange={(e) => handleRmbChange(e.target.value)}
+                    placeholder="0.00"
+                    style={{
+                      width: 140,
+                      fontWeight: 700,
+                      fontSize: 16,
+                      color: "#15803d",
+                      borderColor: "#86efac",
+                      background: "#ffffff",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+            {convertedInr != null && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: "10px 14px",
+                  background: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 8,
+                }}
+              >
+                <div>
+                  <span style={{ fontSize: 12, color: "#1e40af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Equivalent in INR
+                  </span>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                    ¥{numAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} @ rate {effectiveRate}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <span style={{ fontSize: 18, fontWeight: 700, color: "#1d4ed8" }}>
+                    ₹{convertedInr.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+            )}
+            <p className="muted" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>Extra fee is only if the agent actually charged one.</p>
           </div>
         )}
 

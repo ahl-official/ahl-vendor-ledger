@@ -171,6 +171,7 @@ export function agentPosition(agentId: string, d: LedgerData): Record<string, nu
     if (m.type === "AgentToVendor" && m.payerId === agentId) add(m.currency, -m.amount);
     if (m.type === "AgentToCompany" && m.payerId === agentId) add(m.currency, -m.amount);
   }
+  const convertedFundings = new Set<string>();
   for (const c of d.fxConversions) {
     if (c.reversed || c.agentId !== agentId) continue;
     // Defend against an orphaned conversion (its funding/spend row was cleared, e.g. by
@@ -178,8 +179,21 @@ export function agentPosition(agentId: string, d: LedgerData): Record<string, nu
     const fundingExists = d.movements.some((m) => m.id === c.fundingMovementId);
     const spendExists = d.movements.some((m) => m.id === c.spendMovementId);
     if (!fundingExists || !spendExists) continue;
+    convertedFundings.add(c.fundingMovementId);
     add(c.fromCurrency, -c.fromAmount);
     add(c.toCurrency, c.toAmount);
+  }
+  // If an INR funding movement has a quoted or actual rate and no explicit FX conversion, convert it
+  for (const m of d.movements) {
+    if (m.reversed) continue;
+    if (m.type === "CompanyToAgent" && m.payeeId === agentId && m.currency === "INR" && !convertedFundings.has(m.id)) {
+      const rate = m.quotedRate ?? m.actualRate;
+      if (rate && rate > 0) {
+        const toAmount = rate > 1 ? m.amount / rate : m.amount * rate;
+        add("INR", -m.amount);
+        add("RMB", toAmount);
+      }
+    }
   }
   return byCurrency;
 }

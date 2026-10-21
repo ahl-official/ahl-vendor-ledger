@@ -1,6 +1,6 @@
 import { contactName, type LedgerData } from "./ledger.ts";
 
-/** Display the agent's passbook without converting a quoted rate into settled money. */
+/** Display the agent's passbook, converting quoted/actual rates or confirmed FX conversions into RMB. */
 export function agentStatement(agentId: string, d: LedgerData) {
   const rows = d.movements.filter(m => !m.reversed && (
     (m.type === "CompanyToAgent" && m.payeeId === agentId) ||
@@ -15,16 +15,33 @@ export function agentStatement(agentId: string, d: LedgerData) {
       balances: {} as Record<string, number>,
     };
   });
+  const convertedFundings = new Set<string>();
   for (const c of d.fxConversions) {
     if (c.reversed || c.agentId !== agentId) continue;
     if (!d.movements.some(m => m.id === c.fundingMovementId) || !d.movements.some(m => m.id === c.spendMovementId)) continue;
     const funding = rows.find(r => r.movement.id === c.fundingMovementId);
     if (!funding) continue;
+    convertedFundings.add(c.fundingMovementId);
     // Attribute only the confirmed conversion to its funding, including partial links.
     funding.changes[c.fromCurrency] = (funding.changes[c.fromCurrency] ?? 0) - c.fromAmount;
     funding.changes[c.toCurrency] = (funding.changes[c.toCurrency] ?? 0) + c.toAmount;
     funding.conversions.push(`Confirmed conversion: ${c.fromCurrency} ${c.fromAmount.toFixed(2)} → ${c.toCurrency} ${c.toAmount.toFixed(2)}.`);
   }
+
+  // Auto-convert INR funding movements that have a rate and are not explicitly linked via FX conversion
+  for (const row of rows) {
+    const m = row.movement;
+    if (m.type === "CompanyToAgent" && m.currency === "INR" && !convertedFundings.has(m.id)) {
+      const rate = m.quotedRate ?? m.actualRate;
+      if (rate && rate > 0) {
+        const rmbAmt = rate > 1 ? m.amount / rate : m.amount * rate;
+        row.changes.INR = (row.changes.INR ?? 0) - m.amount;
+        row.changes.RMB = (row.changes.RMB ?? 0) + rmbAmt;
+        row.conversions.push(`Converted @ ${rate.toFixed(2)}: INR ${m.amount.toFixed(2)} → RMB ${rmbAmt.toFixed(2)}.`);
+      }
+    }
+  }
+
   rows.sort((a, b) => a.movement.date.localeCompare(b.movement.date) || a.movement.createdAt.localeCompare(b.movement.createdAt) || a.movement.id.localeCompare(b.movement.id));
   const running: Record<string, number> = {};
   for (const row of rows) {
