@@ -229,7 +229,12 @@ export default function LedgerPage() {
 
   return (
     <div>
-      <h1 style={{ marginBottom: 24 }}>Ledger</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+        <h1 style={{ margin: 0 }}>Ledger</h1>
+        <a href="/api/export" className="btn secondary">
+          Export Report (Excel)
+        </a>
+      </div>
       {loadError && <p className="error-text" style={{ marginBottom: 16 }}>{loadError}</p>}
       {actionError && (
         <div className="card" style={{ background: "var(--err-bg)", borderColor: "var(--err-border)", marginBottom: 16 }}>
