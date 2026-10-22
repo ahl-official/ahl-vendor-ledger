@@ -148,7 +148,7 @@ function VendorBalanceContent() {
       : action === "PaySupplier"
       ? contacts.filter((c) => c.roles.includes("Supplier"))
       : action === "Expense"
-      ? contacts.filter((c) => c.id !== vendorId)
+      ? contacts.filter((c) => c.id !== vendorId && (c.roles.includes("Agent") || c.roles.includes("Company")))
       : [];
 
   const targetOrders = useMemo(
