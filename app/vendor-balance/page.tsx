@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Application, Contact, CreditNote, MoneyMovement, Transfer } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 import { ProofUpload } from "@/app/components/ProofUpload";
+import { convertByRate } from "@/lib/ledger";
 
 type Receipt = { movementId: string; date: string; currency: string; remaining: number };
 type VendorLedger = Contact & { held: Record<string, number>; openReceipts: Receipt[] };
@@ -52,6 +53,8 @@ function VendorBalanceContent() {
   const [originalEditOrderId, setOriginalEditOrderId] = useState("");
   const [originalEditVendorId, setOriginalEditVendorId] = useState("");
   const [originalEditCurrency, setOriginalEditCurrency] = useState("");
+  const [estTarget, setEstTarget] = useState("USD");
+  const [estRate, setEstRate] = useState("");
 
   useEffect(() => {
     if (!editId) setDate(new Date().toISOString().slice(0, 10));
@@ -121,6 +124,8 @@ function VendorBalanceContent() {
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editId]);
+
+  useEffect(() => setEstRate(""), [vendorId]);
 
   const vendor = vendors.find((v) => v.id === vendorId);
   const heldCurrencies = useMemo(() => {
@@ -326,6 +331,33 @@ function VendorBalanceContent() {
             )}
           </div>
         </div>
+
+        {heldCurrencies.length > 0 && (() => {
+          const [heldCurrency, heldAmt] = heldCurrencies[0];
+          const targets = ["USD", "RMB", "INR"].filter((c) => c !== heldCurrency);
+          const rate = Number(estRate);
+          const estimate = rate > 0 ? convertByRate(heldAmt, rate, heldCurrency, estTarget) : null;
+          return (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: -8 }}>
+              <span className="muted" style={{ fontSize: 13 }}>≈</span>
+              <select
+                value={targets.includes(estTarget) ? estTarget : targets[0]}
+                onChange={(e) => setEstTarget(e.target.value)}
+                style={{ width: "auto" }}
+              >
+                {targets.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <span className="muted" style={{ fontSize: 13 }}>at rate</span>
+              <input
+                type="number" step="any" placeholder={`${heldCurrency}→${estTarget} rate`}
+                value={estRate} onChange={(e) => setEstRate(e.target.value)}
+                style={{ width: 110 }}
+              />
+              {estimate != null && <span className="badge info">≈ {estTarget} {estimate.toFixed(2)}</span>}
+              <span className="muted" style={{ fontSize: 12 }}>Quick estimate only — not saved, spending still happens in {heldCurrency}.</span>
+            </div>
+          );
+        })()}
 
         <div>
           <label>Date</label>
