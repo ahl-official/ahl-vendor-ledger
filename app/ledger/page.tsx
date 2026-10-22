@@ -172,7 +172,22 @@ export default function LedgerPage() {
 
   const vendorOrders = roleFilter === "Vendor" ? orders.filter((o) => o.vendorId === selectedId) : [];
   const vendorHeld = roleFilter === "Vendor" ? vendors.find((v) => v.id === selectedId)?.held : undefined;
-  useEffect(() => setEstRate(""), [selectedId]);
+  // Reuse a rate already entered when the money was recorded, instead of asking for it again --
+  // picks the most recent movement to this vendor that was itself given a conversion rate.
+  useEffect(() => {
+    const heldCurrency = vendorHeld && Object.entries(vendorHeld).find(([, amt]) => Math.abs(amt) > 0.001)?.[0];
+    const withRate = heldCurrency
+      ? movements
+          .filter((m) => !m.reversed && m.payeeId === selectedId && m.currency === heldCurrency && m.rateCurrency && m.rateCurrency !== heldCurrency && (m.quotedRate || m.actualRate))
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+      : undefined;
+    if (withRate) {
+      setEstTarget(withRate.rateCurrency);
+      setEstRate(String(withRate.quotedRate ?? withRate.actualRate));
+    } else {
+      setEstRate("");
+    }
+  }, [selectedId, vendorHeld, movements]);
   const estRateNum = Number(estRate);
   // Include any currency a funding was ever converted INTO (e.USD via rateCurrency), not just
   // currencies a movement is literally denominated in -- otherwise a USD conversion target

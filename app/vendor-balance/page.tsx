@@ -32,6 +32,7 @@ function VendorBalanceContent() {
   const editKind = searchParams.get("kind") === "application" ? "application" : "transfer";
 
   const [vendors, setVendors] = useState<VendorLedger[]>([]);
+  const [movements, setMovements] = useState<MoneyMovement[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [vendorId, setVendorId] = useState("");
@@ -61,8 +62,8 @@ function VendorBalanceContent() {
   }, [editId]);
 
   const load = () => {
-    fetchJson<{ vendors: VendorLedger[] }>("/api/ledger")
-      .then((d) => setVendors(d.vendors))
+    fetchJson<{ vendors: VendorLedger[]; movements: MoneyMovement[] }>("/api/ledger")
+      .then((d) => { setVendors(d.vendors); setMovements(d.movements); })
       .catch((e) => setError(e.message));
     fetchJson<Contact[]>("/api/contacts")
       .then(setContacts)
@@ -129,8 +130,17 @@ function VendorBalanceContent() {
   // an order's due amount is fixed in its own currency, so applying to it can't convert.
   useEffect(() => {
     setSpendCurrency(currency);
-    setSpendRate("");
   }, [currency, vendorId, action]);
+
+  // Reuse a rate already entered when money was received into this vendor's balance,
+  // instead of asking for it again, when switching to spend in a different currency.
+  useEffect(() => {
+    if (spendCurrency === currency) return setSpendRate("");
+    const withRate = movements
+      .filter((m) => !m.reversed && m.payeeId === vendorId && m.currency === currency && m.rateCurrency === spendCurrency && (m.quotedRate || m.actualRate))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    setSpendRate(withRate ? String(withRate.quotedRate ?? withRate.actualRate) : "");
+  }, [spendCurrency, currency, vendorId, movements]);
 
   const vendor = vendors.find((v) => v.id === vendorId);
   const heldCurrencies = useMemo(() => {
