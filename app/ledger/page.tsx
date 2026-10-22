@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { vendorAccount } from "@/lib/accounts";
+import { convertByRate } from "@/lib/ledger";
 import { agentStatement } from "@/lib/agent-statement";
 import { LedgerActions, LedgerNote } from "@/app/components/LedgerCells";
 import type { Contact, CreditNote, FxConversion, MoneyMovement, Application, Transfer, Role, Order } from "@/lib/schema";
@@ -58,6 +59,8 @@ export default function LedgerPage() {
 
   const [roleFilter, setRoleFilter] = useState<Role | "">("");
   const [selectedId, setSelectedId] = useState("");
+  const [estTarget, setEstTarget] = useState("USD");
+  const [estRate, setEstRate] = useState("");
 
   const loadLedger = () => {
     Promise.all([
@@ -169,6 +172,7 @@ export default function LedgerPage() {
 
   const vendorOrders = roleFilter === "Vendor" ? orders.filter((o) => o.vendorId === selectedId) : [];
   const vendorHeld = roleFilter === "Vendor" ? vendors.find((v) => v.id === selectedId)?.held : undefined;
+  useEffect(() => setEstRate(""), [selectedId]);
   // Include any currency a funding was ever converted INTO (e.USD via rateCurrency), not just
   // currencies a movement is literally denominated in -- otherwise a USD conversion target
   // would have nowhere to show up, since no movement itself is "in" that currency.
@@ -283,6 +287,34 @@ export default function LedgerPage() {
                       <span key={c} className={`badge ${amt > 0 ? "hold" : "err"}`} style={{ marginRight: 6 }}>{c} {amt.toFixed(2)}</span>
                     ))
                   : <span className="muted">Nothing held</span>}
+                {vendorHeld && Object.entries(vendorHeld).filter(([, amt]) => Math.abs(amt) > 0.01).length > 0 && (() => {
+                  const [heldCurrency, heldAmt] = Object.entries(vendorHeld).filter(([, amt]) => Math.abs(amt) > 0.01)[0];
+                  const targets = ["USD", "RMB", "INR"].filter((c) => c !== heldCurrency);
+                  const rate = Number(estRate);
+                  const estimate = rate > 0 ? convertByRate(heldAmt, rate, heldCurrency, estTarget) : null;
+                  return (
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+                      <span className="muted" style={{ fontSize: 13 }}>≈</span>
+                      <select
+                        value={targets.includes(estTarget) ? estTarget : targets[0]}
+                        onChange={(e) => setEstTarget(e.target.value)}
+                        style={{ width: "auto" }}
+                      >
+                        {targets.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <span className="muted" style={{ fontSize: 13 }}>at rate</span>
+                      <input
+                        type="number" step="any" placeholder={`${heldCurrency}→${estTarget} rate`}
+                        value={estRate} onChange={(e) => setEstRate(e.target.value)}
+                        style={{ width: 110 }}
+                      />
+                      {estimate != null && <span className="badge info">≈ {estTarget} {estimate.toFixed(2)}</span>}
+                    </div>
+                  );
+                })()}
+                <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  Quick estimate only — type today&apos;s rate to see the value in another currency. Nothing is saved.
+                </p>
               </>
             )}
             {roleFilter === "Agent" && <><p className="field-label">Running position</p>{Object.entries(agents.find(a => a.id === selectedId)?.position ?? {}).map(([cur, amount]) => <span key={cur} className={`badge agent-position ${Math.abs(amount) < 0.005 ? "ok" : amount > 0 ? "hold" : "err"}`}>{Math.abs(amount) < 0.005 ? `Settled (${cur} 0.00)` : amount > 0 ? `Agent holds: ${cur} ${amount.toFixed(2)}` : `Company owes: ${cur} ${(-amount).toFixed(2)}`}</span>)}</>}
