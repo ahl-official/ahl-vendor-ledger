@@ -11,7 +11,7 @@ export const POST = withErrors(async (req: Request) => {
   const d = await getAllData();
   const from = d.contacts.find(c => c.id === body.fromVendorId && c.active && c.roles.includes("Vendor"));
   const to = d.contacts.find(c => c.id === body.toContactId && c.active);
-  if (!from || !["Transfer", "PaySupplier", "Refund"].includes(purpose)) return NextResponse.json({ error: "Choose a valid source vendor and purpose" }, { status: 400 });
+  if (!from || !["Transfer", "PaySupplier", "Refund", "Expense"].includes(purpose)) return NextResponse.json({ error: "Choose a valid source vendor and purpose" }, { status: 400 });
   if (!to || to.id === from.id || (purpose === "Transfer" && !to.roles.includes("Vendor")) || (purpose === "PaySupplier" && !to.roles.includes("Supplier")) || (purpose === "Refund" && !to.roles.includes("Company"))) return NextResponse.json({ error: "Choose a valid recipient for this type of payment" }, { status: 400 });
   if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.001) return NextResponse.json({ error: "Enter a positive amount with at most two decimals" }, { status: 400 });
   const allSources = vendorOpenReceipts(from.id, d);

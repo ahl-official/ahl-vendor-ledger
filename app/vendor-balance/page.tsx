@@ -13,6 +13,7 @@ const ACTIONS = [
   { value: "apply", label: "Apply to Order" },
   { value: "Transfer", label: "Transfer to Vendor" },
   { value: "PaySupplier", label: "Pay Supplier" },
+  { value: "Expense", label: "Record Expense" },
 ] as const;
 
 export default function VendorBalancePage() {
@@ -81,7 +82,7 @@ function VendorBalanceContent() {
           setOriginalEditVendorId(t.fromVendorId);
           setCurrency(t.currency);
           setOriginalEditCurrency(t.currency);
-          setAction(t.purpose === "PaySupplier" ? "PaySupplier" : "Transfer");
+          setAction(t.purpose === "PaySupplier" ? "PaySupplier" : t.purpose === "Expense" ? "Expense" : "Transfer");
           setToContactId(t.toContactId);
           setAmount(String(t.amount));
           setOriginalEditAmount(t.amount);
@@ -146,6 +147,8 @@ function VendorBalanceContent() {
       ? contacts.filter((c) => c.roles.includes("Vendor") && c.id !== vendorId)
       : action === "PaySupplier"
       ? contacts.filter((c) => c.roles.includes("Supplier"))
+      : action === "Expense"
+      ? contacts.filter((c) => c.id !== vendorId)
       : [];
 
   const targetOrders = useMemo(
@@ -347,10 +350,10 @@ function VendorBalanceContent() {
           </select>
         </div>
 
-        {(action === "Transfer" || action === "PaySupplier") && (
+        {(action === "Transfer" || action === "PaySupplier" || action === "Expense") && (
           <div>
             <label>
-              {action === "Transfer" ? "Receiving vendor" : "Supplier"}
+              {action === "Transfer" ? "Receiving vendor" : action === "PaySupplier" ? "Supplier" : "Spent by"}
             </label>
             <select
               value={toContactId}
@@ -485,10 +488,10 @@ function VendorBalanceContent() {
 
         {action !== "apply" && (
           <>
-            <ProofUpload label="Proof of transaction (PDF or image, optional)" url={proofUrl} onChange={setProofUrl} />
+            <ProofUpload label={action === "Expense" ? "Receipt (PDF or image, optional)" : "Proof of transaction (PDF or image, optional)"} url={proofUrl} onChange={setProofUrl} />
             <div>
-              <label>Note / proof link</label>
-              <input value={note} onChange={(e) => setNote(e.target.value)} />
+              <label>{action === "Expense" ? "What was it for?" : "Note / proof link"}</label>
+              <input value={note} onChange={(e) => setNote(e.target.value)} required={action === "Expense"} />
             </div>
           </>
         )}

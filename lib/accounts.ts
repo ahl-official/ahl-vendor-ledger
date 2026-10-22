@@ -42,7 +42,7 @@ export function vendorAccount(vendorId: string, d: LedgerData) {
   for (const t of d.transfers.filter(t => t.fromVendorId === vendorId || (t.purpose === "Transfer" && t.toContactId === vendorId))) {
     const incoming = t.fromVendorId !== vendorId;
     const order = orders.find(o => o.id === t.receivingOrderId);
-    const label = incoming ? `Transfer from ${name(t.fromVendorId)}${order ? ` · paid ${order.invoiceRef || order.id}` : " · on account"}` : `${t.purpose === "PaySupplier" ? "Supplier payment to" : t.purpose === "Refund" ? "Refund to" : "Transfer to"} ${name(t.toContactId)}`;
+    const label = incoming ? `Transfer from ${name(t.fromVendorId)}${order ? ` · paid ${order.invoiceRef || order.id}` : " · on account"}` : `${t.purpose === "PaySupplier" ? "Supplier payment to" : t.purpose === "Refund" ? "Refund to" : t.purpose === "Expense" ? "Expense — paid to" : "Transfer to"} ${name(t.toContactId)}`;
     transferEvents.push({ id: t.id, kind: "transfer", date: t.date ?? t.createdAt.slice(0, 10), createdAt: t.createdAt, label, currency: t.currency, credited: incoming ? t.amount : 0, debited: !incoming || t.receivingOrderId ? t.amount : 0, balance: 0, reversed: t.reversed, note: t.note, proofUrl: t.proofUrl, legacy: !!t.legacyId });
   }
   events.push(...mergeTransferEvents(transferEvents));

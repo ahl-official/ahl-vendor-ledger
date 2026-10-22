@@ -77,7 +77,7 @@ export type MovementType = (typeof MOVEMENT_TYPES)[number] | "LegacyCompanyToVen
 export const PAYMENT_USES = ["OrderOnly", "OnAccountOnly", "OrderPlusOnAccount"] as const;
 export type PaymentUse = (typeof PAYMENT_USES)[number];
 
-export const TRANSFER_PURPOSES = ["Transfer", "PaySupplier", "Refund"] as const;
+export const TRANSFER_PURPOSES = ["Transfer", "PaySupplier", "Refund", "Expense"] as const;
 export type TransferPurpose = (typeof TRANSFER_PURPOSES)[number];
 
 export interface Contact {
