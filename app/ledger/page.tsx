@@ -173,6 +173,7 @@ export default function LedgerPage() {
   const vendorOrders = roleFilter === "Vendor" ? orders.filter((o) => o.vendorId === selectedId) : [];
   const vendorHeld = roleFilter === "Vendor" ? vendors.find((v) => v.id === selectedId)?.held : undefined;
   useEffect(() => setEstRate(""), [selectedId]);
+  const estRateNum = Number(estRate);
   // Include any currency a funding was ever converted INTO (e.USD via rateCurrency), not just
   // currencies a movement is literally denominated in -- otherwise a USD conversion target
   // would have nowhere to show up, since no movement itself is "in" that currency.
@@ -380,6 +381,7 @@ export default function LedgerPage() {
                   <th>Credited</th>
                   <th>Debited</th>
                   <th>Total Balance</th>
+                  <th>≈ {estTarget}</th>
                   <th>Note</th>
                   <th style={{ textAlign: "right" }}>Actions</th>
                 </tr>
@@ -424,6 +426,11 @@ export default function LedgerPage() {
                       ) : (
                         "—"
                       )}
+                    </td>
+                    <td className="muted">
+                      {e.runningBalance != null && estRateNum > 0
+                        ? `${estTarget} ${(e.currency === estTarget ? e.runningBalance : convertByRate(e.runningBalance, estRateNum, e.currency, estTarget)).toFixed(2)}`
+                        : "—"}
                     </td>
                     <td className="muted"><LedgerNote text={e.note} proofUrl={proofById.get(e.id)} /></td>
                     <td style={{ textAlign: "right" }}>
