@@ -231,8 +231,8 @@ export default function LedgerPage() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <h1 style={{ margin: 0 }}>Ledger</h1>
-        <a href="/api/export" className="btn secondary">
-          Export Report (Excel)
+        <a href={selectedId ? `/api/export?contactId=${selectedId}` : "/api/export"} className="btn secondary">
+          Export Report (Excel){selectedId ? ` — ${selected?.name}` : ""}
         </a>
       </div>
       {loadError && <p className="error-text" style={{ marginBottom: 16 }}>{loadError}</p>}
