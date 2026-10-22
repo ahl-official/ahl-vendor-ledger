@@ -81,6 +81,19 @@ export function isReceipt(m: MoneyMovement): boolean {
   return !m.reversed && (m.type === "AgentToVendor" || m.type === "CompanyToVendor" || m.type === "LegacyCompanyToVendor" || m.type === "OpeningBalance");
 }
 
+/** A receipt's amount/currency as the vendor actually holds it, once the sender fixed a
+ *  conversion rate on it (rateCurrency + quotedRate/actualRate): from that point on the vendor
+ *  holds the converted currency, not the original one -- the rate is only ever asked for once,
+ *  at the source, not again every time the balance is read or spent. Falls through to the
+ *  plain currency/amount when no rate was ever entered on the receipt. */
+export function receiptEffective(m: MoneyMovement): { currency: string; amount: number } {
+  const rate = m.quotedRate ?? m.actualRate;
+  if (m.rateCurrency && m.rateCurrency !== m.currency && rate && rate > 0) {
+    return { currency: m.rateCurrency, amount: convertByRate(m.amount, rate, m.currency, m.rateCurrency) };
+  }
+  return { currency: m.currency, amount: m.amount };
+}
+
 /** How much of a receipt's amount is still unapplied / untransferred — what "Use Vendor Balance" can spend. */
 export function movementRemaining(movementId: string, d: LedgerData): number {
   const source = balanceSource(movementId, d);
@@ -96,7 +109,7 @@ export interface BalanceSource {
 /** Source IDs remain the original movement/transfer/credit IDs, never synthetic cash. */
 export function balanceSource(id: string, d: LedgerData): BalanceSource | undefined {
   const m = d.movements.find(m => m.id === id && isReceipt(m));
-  if (m) return { ...m, kind: "Receipt" };
+  if (m) { const eff = receiptEffective(m); return { ...m, currency: eff.currency, amount: eff.amount, kind: "Receipt" }; }
   const t = d.transfers.find(t => t.id === id && !t.reversed && t.purpose === "Transfer" && !t.receivingOrderId);
   if (t) return { id: t.id, payeeId: t.toContactId, currency: t.currency, amount: t.amount, date: t.date ?? t.createdAt.slice(0, 10), createdAt: t.createdAt, kind: "Transfer" };
   const c = d.creditNotes?.find(c => c.id === id && !c.reversed);
@@ -122,8 +135,10 @@ export function vendorOpenReceipts(vendorId: string, d: LedgerData) {
 
 export function vendorHeld(vendorId: string, currency: string, d: LedgerData): number {
   const receivedIn = d.movements
-    .filter((m) => isReceipt(m) && m.payeeId === vendorId && m.currency === currency)
-    .reduce((s, m) => s + m.amount, 0);
+    .filter((m) => isReceipt(m) && m.payeeId === vendorId)
+    .map((m) => receiptEffective(m))
+    .filter((r) => r.currency === currency)
+    .reduce((s, r) => s + r.amount, 0);
   // Only purpose "Transfer" (vendor-to-vendor) is a real incoming balance for the recipient.
   // A refund's toContactId is just where the money went, not a vendor gaining held funds —
   // counting it here would cancel out its own transfersOut below. A transfer sent straight to

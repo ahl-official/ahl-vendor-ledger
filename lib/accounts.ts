@@ -1,4 +1,4 @@
-import { balanceSource, contactName, orderSummary, vendorHeld, type LedgerData } from "./ledger.ts";
+import { balanceSource, contactName, orderSummary, receiptEffective, vendorHeld, type LedgerData } from "./ledger.ts";
 
 export interface StatementEvent {
   id: string; kind: "movement" | "transfer" | "application" | "credit_note";
@@ -40,7 +40,12 @@ export function vendorAccount(vendorId: string, d: LedgerData) {
   const orders = d.orders.filter(o => o.vendorId === vendorId).map(o => ({ ...o, ...orderSummary(o, d) }));
   const events: StatementEvent[] = [];
   for (const m of d.movements.filter(m => m.payeeId === vendorId && (m.type === "AgentToVendor" || m.type === "CompanyToVendor" || m.type === "LegacyCompanyToVendor" || m.type === "OpeningBalance"))) {
-    events.push({ id: m.id, kind: "movement", date: m.date, createdAt: m.createdAt, label: m.type === "OpeningBalance" ? "Opening balance carried forward" : `Received from ${name(m.payerId)}`, currency: m.currency, credited: m.amount, debited: 0, balance: 0, reversed: m.reversed, note: m.note, proofUrl: m.proofUrl, legacy: !!m.legacyId });
+    const eff = receiptEffective(m);
+    const rate = m.quotedRate ?? m.actualRate;
+    const note = eff.currency !== m.currency
+      ? [m.note, `Converted @ ${rate!.toFixed(2)}: ${m.currency} ${m.amount.toFixed(2)} → ${eff.currency} ${eff.amount.toFixed(2)}`].filter(Boolean).join("\n\n")
+      : m.note;
+    events.push({ id: m.id, kind: "movement", date: m.date, createdAt: m.createdAt, label: m.type === "OpeningBalance" ? "Opening balance carried forward" : `Received from ${name(m.payerId)}`, currency: eff.currency, credited: eff.amount, debited: 0, balance: 0, reversed: m.reversed, note, proofUrl: m.proofUrl, legacy: !!m.legacyId });
   }
   const transferEvents: StatementEvent[] = [];
   for (const t of d.transfers.filter(t => t.fromVendorId === vendorId || (t.purpose === "Transfer" && t.toContactId === vendorId))) {
