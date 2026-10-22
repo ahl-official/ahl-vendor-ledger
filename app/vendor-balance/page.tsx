@@ -147,9 +147,10 @@ function VendorBalanceContent() {
       ? contacts.filter((c) => c.roles.includes("Vendor") && c.id !== vendorId)
       : action === "PaySupplier"
       ? contacts.filter((c) => c.roles.includes("Supplier"))
-      : action === "Expense"
-      ? contacts.filter((c) => c.id !== vendorId && (c.roles.includes("Agent") || c.roles.includes("Company")))
       : [];
+  // Expense doesn't ask who spent it -- the system still needs a "to" contact internally,
+  // so it's silently recorded against the Company.
+  const companyContactId = contacts.find((c) => c.roles.includes("Company"))?.id ?? "";
 
   const targetOrders = useMemo(
     () =>
@@ -174,6 +175,7 @@ function VendorBalanceContent() {
     if (amt - totalHeld > 0.01) {
       return setError(`Vendor only holds ${currency} ${totalHeld.toFixed(2)} in total balance`);
     }
+    if (action === "Expense" && !companyContactId) return setError("No Company contact found to record this against");
     if (isTransferSplit && !paymentUse) {
       return setError("Choose Order only / On-account only / Order + on-account");
     }
@@ -207,7 +209,7 @@ function VendorBalanceContent() {
               body: JSON.stringify({
                 fromVendorId: vendorId,
                 purpose: action,
-                toContactId,
+                toContactId: action === "Expense" ? companyContactId : toContactId,
                 amount: amt,
                 currency,
                 paymentUse: isTransferSplit ? paymentUse : undefined,
@@ -350,10 +352,10 @@ function VendorBalanceContent() {
           </select>
         </div>
 
-        {(action === "Transfer" || action === "PaySupplier" || action === "Expense") && (
+        {(action === "Transfer" || action === "PaySupplier") && (
           <div>
             <label>
-              {action === "Transfer" ? "Receiving vendor" : action === "PaySupplier" ? "Supplier" : "Spent by"}
+              {action === "Transfer" ? "Receiving vendor" : "Supplier"}
             </label>
             <select
               value={toContactId}
