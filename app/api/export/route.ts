@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { getAllData } from "@/lib/data";
-import { agentPosition, contactName, isReceipt, orderSummary, receiptEffective, vendorHeld } from "@/lib/ledger";
+import { agentPosition, contactName, orderSummary, vendorHeld } from "@/lib/ledger";
 import { withErrors } from "@/lib/api";
 
 // Matches the app's own palette (see app/globals.css :root) so the export looks like
@@ -149,10 +149,9 @@ export const GET = withErrors(async (req: Request) => {
   type TxRow = { date: string; type: string; from: string; to: string; amount: number; currency: string; note: string; reversed: string };
   const txRows: TxRow[] = [];
   for (const m of movements) {
-    const eff = isReceipt(m) ? receiptEffective(m) : { currency: m.currency, amount: m.amount };
     txRows.push({
       date: m.date, type: typeLabel[m.type] ?? m.type, from: m.payerId ? name(m.payerId) : "",
-      to: name(m.payeeId), amount: eff.amount, currency: eff.currency, note: m.note, reversed: m.reversed ? "Yes" : "",
+      to: name(m.payeeId), amount: m.amount, currency: m.currency, note: m.note, reversed: m.reversed ? "Yes" : "",
     });
   }
   for (const t of transfers) {
