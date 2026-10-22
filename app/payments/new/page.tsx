@@ -3,6 +3,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Application, Contact, MoneyMovement, MovementType, PaymentUse } from "@/lib/schema";
 import { METHOD_DEFAULTS, REFERENCE_DEFAULTS } from "@/lib/schema";
+import { convertByRate, deriveRateFromConverted } from "@/lib/ledger";
 import { fetchJson } from "@/lib/fetchJson";
 import { ProofUpload } from "@/app/components/ProofUpload";
 
@@ -42,7 +43,8 @@ function RecordMovementContent() {
   const [actualRate, setActualRate] = useState("");
   const [quotedRate, setQuotedRate] = useState("");
   const [agentFee, setAgentFee] = useState("");
-  const [rmbAmountOverride, setRmbAmountOverride] = useState<string | null>(null);
+  const [convertTo, setConvertTo] = useState("RMB");
+  const [convertedAmountOverride, setConvertedAmountOverride] = useState<string | null>(null);
   const [method, setMethod] = useState("");
   const [methodChoice, setMethodChoice] = useState("");
   const [reference, setReference] = useState("");
@@ -78,6 +80,7 @@ function RecordMovementContent() {
         setActualRate(m.actualRate != null ? String(m.actualRate) : "");
         setQuotedRate(m.quotedRate != null ? String(m.quotedRate) : "");
         setAgentFee(m.agentFee != null ? String(m.agentFee) : "");
+        setConvertTo(m.rateCurrency || "RMB");
         setMethod(m.method); setMethodChoice(optionLists.method.includes(m.method) ? m.method : m.method ? "Other" : "");
         setReference(m.reference); setReferenceChoice(optionLists.reference.includes(m.reference) ? m.reference : m.reference ? "Other" : "");
         setNote(m.note);
@@ -112,44 +115,38 @@ function RecordMovementContent() {
   const effectiveRate = Number(quotedRate || actualRate || 0);
   const numAmount = Number(amount || 0);
 
-  const convertedRmb = useMemo(() => {
-    if (!effectiveRate || !numAmount) return null;
-    if (currency === "INR") {
-      return effectiveRate > 1 ? numAmount / effectiveRate : numAmount * effectiveRate;
-    }
-    if (currency === "USD") {
-      return effectiveRate > 1 ? numAmount * effectiveRate : numAmount / effectiveRate;
-    }
-    return null;
-  }, [effectiveRate, numAmount, currency]);
+  // The two currencies this amount could convert into (the two OTHER than whichever is the
+  // transaction's own currency) -- e.g. currency=INR offers RMB and USD as targets.
+  const convertOptions = useMemo(() => ["RMB", "INR", "USD"].filter((c) => c !== currency), [currency]);
+  useEffect(() => {
+    if (!convertOptions.includes(convertTo)) setConvertTo(convertOptions[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currency]);
 
-  const convertedInr = useMemo(() => {
-    if (!effectiveRate || !numAmount) return null;
-    if (currency === "RMB") {
-      return numAmount * (effectiveRate > 1 ? effectiveRate : 1 / effectiveRate);
-    }
-    return null;
-  }, [effectiveRate, numAmount, currency]);
+  const currencySymbol = (c: string) => (c === "RMB" ? "¥" : c === "INR" ? "₹" : "$");
 
-  const displayRmb = rmbAmountOverride !== null
-    ? rmbAmountOverride
-    : convertedRmb != null
-      ? String(Number(convertedRmb.toFixed(2)))
+  // Same conversion convention the backend uses to auto-convert agent fundings (see
+  // convertByRate/deriveRateFromConverted in lib/ledger.ts) — kept in one shared place so a
+  // saved rate is interpreted identically here and in the Agent Passbook.
+  const convertedAmount = useMemo(() => {
+    if (!effectiveRate || !numAmount) return null;
+    return convertByRate(numAmount, effectiveRate, currency, convertTo);
+  }, [effectiveRate, numAmount, currency, convertTo]);
+
+  const displayConverted = convertedAmountOverride !== null
+    ? convertedAmountOverride
+    : convertedAmount != null
+      ? String(Number(convertedAmount.toFixed(2)))
       : "";
 
-  const handleRmbChange = (val: string) => {
+  const handleConvertedChange = (val: string) => {
     // Only allow typing digits and at most one decimal point — no scrolling or non-numeric chars
     if (val !== "" && !/^\d*\.?\d*$/.test(val)) return;
-    setRmbAmountOverride(val);
-    const newRmb = Number(val);
-    if (newRmb > 0 && numAmount > 0) {
-      if (currency === "INR") {
-        const calculatedRate = numAmount / newRmb;
-        setQuotedRate(String(Math.round(calculatedRate * 1000000) / 1000000));
-      } else if (currency === "USD") {
-        const calculatedRate = newRmb / numAmount;
-        setQuotedRate(String(Math.round(calculatedRate * 1000000) / 1000000));
-      }
+    setConvertedAmountOverride(val);
+    const newConverted = Number(val);
+    if (newConverted > 0 && numAmount > 0) {
+      const calculatedRate = deriveRateFromConverted(numAmount, newConverted, currency, convertTo);
+      setQuotedRate(String(Math.round(calculatedRate * 1000000) / 1000000));
     }
   };
 
@@ -178,6 +175,7 @@ function RecordMovementContent() {
         body: JSON.stringify({
           editId, type, payerId, payeeId, amount: Number(amount), currency, date,
           actualRate: actualRate || null, quotedRate: quotedRate || null, agentFee: agentFee || null,
+          rateCurrency: convertTo,
           method, reference, note, proofUrl,
           paymentUse: isVendorReceipt ? paymentUse : "",
           orderId: paymentUse === "OnAccountOnly" ? "" : orderId,
@@ -225,7 +223,7 @@ function RecordMovementContent() {
       <form onSubmit={submit} className="card grid" style={{ gap: 16, maxWidth: 640 }}>
         <div>
           <label>Flow</label>
-          <select value={type} onChange={(e) => { const t = e.target.value as MovementType; setType(t); setCurrency(t === "AgentToVendor" || t === "CompanyToVendor" ? "RMB" : "INR"); setPayerId(""); setPayeeId(""); setPaymentUse(""); setOrderId(""); setActualRate(""); setQuotedRate(""); setAgentFee(""); setRmbAmountOverride(null); }}>
+          <select value={type} onChange={(e) => { const t = e.target.value as MovementType; setType(t); setCurrency(t === "AgentToVendor" || t === "CompanyToVendor" ? "RMB" : "INR"); setPayerId(""); setPayeeId(""); setPaymentUse(""); setOrderId(""); setActualRate(""); setQuotedRate(""); setAgentFee(""); setConvertedAmountOverride(null); }}>
             {availableTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
@@ -248,10 +246,10 @@ function RecordMovementContent() {
         </div>
 
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-          <div><label>Amount</label><input type="number" value={amount} onChange={(e) => { setAmount(e.target.value); setRmbAmountOverride(null); }} onWheel={(e) => e.currentTarget.blur()} required /></div>
+          <div><label>Amount</label><input type="number" value={amount} onChange={(e) => { setAmount(e.target.value); setConvertedAmountOverride(null); }} onWheel={(e) => e.currentTarget.blur()} required /></div>
           <div>
             <label>Currency</label>
-            <select value={currency} onChange={(e) => { setCurrency(e.target.value); setRmbAmountOverride(null); }}>
+            <select value={currency} onChange={(e) => { setCurrency(e.target.value); setConvertedAmountOverride(null); }}>
               <option>RMB</option><option>INR</option><option>USD</option>
             </select>
           </div>
@@ -262,87 +260,62 @@ function RecordMovementContent() {
           <div className="card" style={{ background: "var(--soft)" }}>
             <p className="field-label">Agent rate &amp; charges (both optional, can apply together)</p>
             <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-              <div><label>Actual / reference rate</label><input type="number" step="any" value={actualRate} onChange={(e) => { setActualRate(e.target.value); setRmbAmountOverride(null); }} onWheel={(e) => e.currentTarget.blur()} placeholder="e.g. 15" /></div>
-              <div><label>Agent's quoted rate</label><input type="number" step="any" value={quotedRate} onChange={(e) => { setQuotedRate(e.target.value); setRmbAmountOverride(null); }} onWheel={(e) => e.currentTarget.blur()} placeholder="e.g. 15.20" /></div>
+              <div><label>Actual / reference rate</label><input type="number" step="any" value={actualRate} onChange={(e) => { setActualRate(e.target.value); setConvertedAmountOverride(null); }} onWheel={(e) => e.currentTarget.blur()} placeholder="e.g. 15" /></div>
+              <div><label>Agent's quoted rate</label><input type="number" step="any" value={quotedRate} onChange={(e) => { setQuotedRate(e.target.value); setConvertedAmountOverride(null); }} onWheel={(e) => e.currentTarget.blur()} placeholder="e.g. 15.20" /></div>
               <div><label>Extra fee</label><input type="number" step="any" value={agentFee} onChange={(e) => setAgentFee(e.target.value)} onWheel={(e) => e.currentTarget.blur()} /></div>
             </div>
-            {(currency === "INR" || currency === "USD") && (
-              <div
-                style={{
-                  marginTop: 12,
-                  padding: "10px 14px",
-                  background: "#f0fdf4",
-                  border: "1px solid #bbf7d0",
-                  borderRadius: 6,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  flexWrap: "wrap",
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <span style={{ fontSize: 12, color: "#166534", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Converted Amount in RMB (Editable)
-                  </span>
-                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-                    {numAmount > 0 && effectiveRate > 0
-                      ? `${currency} ${numAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} @ rate ${effectiveRate}`
-                      : "Type RMB here to auto-fill quoted rate, or enter rate above"}
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 18, fontWeight: 700, color: "#15803d" }}>¥</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={displayRmb}
-                    onChange={(e) => handleRmbChange(e.target.value)}
-                    onWheel={(e) => e.currentTarget.blur()}
-                    placeholder="0.00"
-                    style={{
-                      width: 140,
-                      fontWeight: 700,
-                      fontSize: 16,
-                      color: "#15803d",
-                      borderColor: "#86efac",
-                      background: "#ffffff",
-                    }}
-                  />
+            <div
+              style={{
+                marginTop: 12,
+                padding: "10px 14px",
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                borderRadius: 6,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: 12,
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 12, color: "#166534", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Converted Amount (Editable)
+                </span>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                  {numAmount > 0 && effectiveRate > 0
+                    ? `${currency} ${numAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} @ rate ${effectiveRate}`
+                    : `Type the amount here to auto-fill quoted rate, or enter rate above`}
                 </div>
               </div>
-            )}
-            {convertedInr != null && (
-              <div
-                style={{
-                  marginTop: 12,
-                  padding: "10px 14px",
-                  background: "#eff6ff",
-                  border: "1px solid #bfdbfe",
-                  borderRadius: 6,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  flexWrap: "wrap",
-                  gap: 8,
-                }}
-              >
-                <div>
-                  <span style={{ fontSize: 12, color: "#1e40af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Equivalent in INR
-                  </span>
-                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-                    ¥{numAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} @ rate {effectiveRate}
-                  </div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <span style={{ fontSize: 18, fontWeight: 700, color: "#1d4ed8" }}>
-                    ₹{convertedInr.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <select
+                  value={convertTo}
+                  onChange={(e) => { setConvertTo(e.target.value); setConvertedAmountOverride(null); }}
+                  style={{ width: 80 }}
+                >
+                  {convertOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <span style={{ fontSize: 18, fontWeight: 700, color: "#15803d" }}>{currencySymbol(convertTo)}</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={displayConverted}
+                  onChange={(e) => handleConvertedChange(e.target.value)}
+                  onWheel={(e) => e.currentTarget.blur()}
+                  placeholder="0.00"
+                  style={{
+                    width: 140,
+                    fontWeight: 700,
+                    fontSize: 16,
+                    color: "#15803d",
+                    borderColor: "#86efac",
+                    background: "#ffffff",
+                  }}
+                />
               </div>
-            )}
+            </div>
             <p className="muted" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>Extra fee is only if the agent actually charged one.</p>
           </div>
         )}

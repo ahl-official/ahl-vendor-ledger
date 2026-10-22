@@ -1,4 +1,4 @@
-import { contactName, type LedgerData } from "./ledger.ts";
+import { contactName, convertByRate, type LedgerData } from "./ledger.ts";
 
 /** Display the agent's passbook, converting quoted/actual rates or confirmed FX conversions into RMB. */
 export function agentStatement(agentId: string, d: LedgerData) {
@@ -28,16 +28,19 @@ export function agentStatement(agentId: string, d: LedgerData) {
     funding.conversions.push(`Confirmed conversion: ${c.fromCurrency} ${c.fromAmount.toFixed(2)} → ${c.toCurrency} ${c.toAmount.toFixed(2)}.`);
   }
 
-  // Auto-convert INR funding movements that have a rate and are not explicitly linked via FX conversion
+  // Auto-convert funding movements that have a rate and are not explicitly linked via FX
+  // conversion -- into whatever currency that rate was recorded for (rateCurrency; defaults
+  // to RMB, matching the original INR-funding-to-RMB behavior when nothing else is picked).
   for (const row of rows) {
     const m = row.movement;
-    if (m.type === "CompanyToAgent" && m.currency === "INR" && !convertedFundings.has(m.id)) {
+    const target = m.rateCurrency || "RMB";
+    if (m.type === "CompanyToAgent" && m.currency !== target && !convertedFundings.has(m.id)) {
       const rate = m.quotedRate ?? m.actualRate;
       if (rate && rate > 0) {
-        const rmbAmt = rate > 1 ? m.amount / rate : m.amount * rate;
-        row.changes.INR = (row.changes.INR ?? 0) - m.amount;
-        row.changes.RMB = (row.changes.RMB ?? 0) + rmbAmt;
-        row.conversions.push(`Converted @ ${rate.toFixed(2)}: INR ${m.amount.toFixed(2)} → RMB ${rmbAmt.toFixed(2)}.`);
+        const convertedAmt = convertByRate(m.amount, rate, m.currency, target);
+        row.changes[m.currency] = (row.changes[m.currency] ?? 0) - m.amount;
+        row.changes[target] = (row.changes[target] ?? 0) + convertedAmt;
+        row.conversions.push(`Converted @ ${rate.toFixed(2)}: ${m.currency} ${m.amount.toFixed(2)} → ${target} ${convertedAmt.toFixed(2)}.`);
       }
     }
   }

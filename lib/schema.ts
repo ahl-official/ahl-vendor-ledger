@@ -23,6 +23,10 @@ export const SHEETS = {
     "paymentUse", // OrderOnly | OnAccountOnly | OrderPlusOnAccount | "" (non-vendor movement)
     "method", "reference", "proofUrl", "note",
     "reversed", "reversedReason", "idempotencyKey", "createdAt", "createdBy", "legacyId",
+    "rateCurrency", // what actualRate/quotedRate convert INTO; defaults to RMB when blank. Appended
+    // at the end, not inserted among the older columns -- columns here are positional (see
+    // lib/sheets.ts), so a column added anywhere but last would misalign every column after it
+    // against rows the live sheet already has.
   ],
   // Spends part (or all) of a vendor receipt against an order.
   Applications: [
@@ -100,6 +104,7 @@ export interface MoneyMovement {
   id: string; date: string; type: MovementType; payerId: string; payeeId: string;
   amount: number; currency: string;
   actualRate: number | null; quotedRate: number | null; agentFee: number | null;
+  rateCurrency: string;
   paymentUse: PaymentUse | "";
   method: string; reference: string; proofUrl: string; note: string;
   reversed: boolean; reversedReason: string; idempotencyKey: string;

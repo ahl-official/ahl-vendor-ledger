@@ -12,6 +12,34 @@ export interface LedgerData {
   legacyRecords?: LegacyRecord[];
 }
 
+/** Whether `rate` naturally means "units of `from` per 1 unit of `to`" (so converting divides)
+ *  vs "units of `to` per 1 unit of `from`" (so converting multiplies). Matches how people in
+ *  this business actually quote each pair: INR is always quoted as INR-per-other-currency
+ *  (~15 INR/RMB, ~83 INR/USD), so a rate FROM INR divides and a rate INTO INR multiplies; when
+ *  INR isn't involved, RMB/USD is quoted as RMB-per-USD (~7.2), so FROM USD multiplies and FROM
+ *  RMB (into USD) divides. Shared by the Record Money form and the auto-conversion in
+ *  agentPosition/agentStatement so a saved rate is always interpreted the same way it was
+ *  entered. */
+function rateDividesFromSource(from: string, to: string): boolean {
+  return from === "INR" || (from === "RMB" && to === "USD");
+}
+
+/** Converts `amount` (in `from`) into `to` using `rate`, applying the same auto-detect-
+ *  orientation heuristic as the original single-pair (INR/USD → RMB) version: if the rate
+ *  wasn't entered in the expected orientation (e.g. someone typed the inverse by mistake), a
+ *  rate under 1 flips which operation is used. */
+export function convertByRate(amount: number, rate: number, from: string, to: string): number {
+  const divides = rateDividesFromSource(from, to);
+  if (divides) return rate > 1 ? amount / rate : amount * rate;
+  return rate > 1 ? amount * rate : amount / rate;
+}
+
+/** Inverse of convertByRate: given a known converted amount, back out what the rate must have
+ *  been, in the same orientation convertByRate expects to read it back in. */
+export function deriveRateFromConverted(amount: number, converted: number, from: string, to: string): number {
+  return rateDividesFromSource(from, to) ? amount / converted : converted / amount;
+}
+
 export function orderTotal(order: Order, items: OrderItem[]): number {
   const lines = items.filter((i) => i.orderId === order.id);
   if (!lines.length && order.legacyTotal != null) return order.legacyTotal;
@@ -183,15 +211,16 @@ export function agentPosition(agentId: string, d: LedgerData): Record<string, nu
     add(c.fromCurrency, -c.fromAmount);
     add(c.toCurrency, c.toAmount);
   }
-  // If an INR funding movement has a quoted or actual rate and no explicit FX conversion, convert it
+  // If a funding movement has a quoted or actual rate and no explicit FX conversion, convert it
+  // into whatever currency that rate was recorded for (rateCurrency; defaults to RMB).
   for (const m of d.movements) {
     if (m.reversed) continue;
-    if (m.type === "CompanyToAgent" && m.payeeId === agentId && m.currency === "INR" && !convertedFundings.has(m.id)) {
+    const target = m.rateCurrency || "RMB";
+    if (m.type === "CompanyToAgent" && m.payeeId === agentId && m.currency !== target && !convertedFundings.has(m.id)) {
       const rate = m.quotedRate ?? m.actualRate;
       if (rate && rate > 0) {
-        const toAmount = rate > 1 ? m.amount / rate : m.amount * rate;
-        add("INR", -m.amount);
-        add("RMB", toAmount);
+        add(m.currency, -m.amount);
+        add(target, convertByRate(m.amount, rate, m.currency, target));
       }
     }
   }

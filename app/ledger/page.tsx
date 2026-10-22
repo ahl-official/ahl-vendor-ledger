@@ -169,7 +169,12 @@ export default function LedgerPage() {
 
   const vendorOrders = roleFilter === "Vendor" ? orders.filter((o) => o.vendorId === selectedId) : [];
   const vendorHeld = roleFilter === "Vendor" ? vendors.find((v) => v.id === selectedId)?.held : undefined;
-  const extraAgentCurrencies = roleFilter === "Agent" ? [...new Set(events.map(e => e.currency))].filter(c => c !== "INR" && c !== "RMB") : [];
+  // Include any currency a funding was ever converted INTO (e.USD via rateCurrency), not just
+  // currencies a movement is literally denominated in -- otherwise a USD conversion target
+  // would have nowhere to show up, since no movement itself is "in" that currency.
+  const extraAgentCurrencies = roleFilter === "Agent"
+    ? [...new Set(events.flatMap(e => [e.currency, ...Object.keys(e.balances ?? {})]))].filter(c => c !== "INR" && c !== "RMB")
+    : [];
   const companyNet = useMemo(() => {
     if (roleFilter !== "Company") return undefined;
     const byCurrency: Record<string, number> = {};

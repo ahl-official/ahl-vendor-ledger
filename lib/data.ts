@@ -74,6 +74,7 @@ const parseMovements = (rows: Row[]): MoneyMovement[] =>
     createdAt: r.createdAt,
     createdBy: r.createdBy,
     legacyId: r.legacyId ?? "",
+    rateCurrency: r.rateCurrency || "RMB",
   }));
 
 const parseApplications = (rows: Row[]): Application[] =>

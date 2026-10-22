@@ -79,6 +79,7 @@ export const POST = withErrors(async (req: Request) => {
     idempotencyKey: body.idempotencyKey ?? id,
     createdAt,
     createdBy: body.createdBy ?? "",
+    rateCurrency: body.rateCurrency || "RMB",
   });
 
   if (orderId && appliedAmount > 0) {
