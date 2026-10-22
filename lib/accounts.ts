@@ -10,12 +10,16 @@ export interface StatementEvent {
 /** One vendor-to-vendor transfer can write several Transfer rows (one per source receipt it
  * drew from, see app/api/transfers/route.ts). Shown separately they look like unrelated
  * part-payments; merge rows written by the same action (same moment, same label/currency/
- * reversed state) back into one statement line, keeping every underlying id for void/edit. */
+ * reversed state) back into one statement line, keeping every underlying id for void/edit.
+ * `date` is part of the key too -- a single action always writes the same date to every row
+ * it splits into, but a bulk historical import can share one `createdAt` (the import batch
+ * moment) across many genuinely separate real-world transactions on different dates; without
+ * `date` in the key those would wrongly merge into one. */
 function mergeTransferEvents(events: StatementEvent[]): StatementEvent[] {
   const merged = new Map<string, StatementEvent>();
   const order: StatementEvent[] = [];
   for (const e of events) {
-    const key = `${e.createdAt}|${e.label}|${e.currency}|${e.reversed}`;
+    const key = `${e.date}|${e.createdAt}|${e.label}|${e.currency}|${e.reversed}`;
     const existing = merged.get(key);
     if (existing) {
       existing.credited += e.credited;
