@@ -53,8 +53,8 @@ function VendorBalanceContent() {
   const [originalEditOrderId, setOriginalEditOrderId] = useState("");
   const [originalEditVendorId, setOriginalEditVendorId] = useState("");
   const [originalEditCurrency, setOriginalEditCurrency] = useState("");
-  const [estTarget, setEstTarget] = useState("USD");
-  const [estRate, setEstRate] = useState("");
+  const [spendCurrency, setSpendCurrency] = useState("");
+  const [spendRate, setSpendRate] = useState("");
 
   useEffect(() => {
     if (!editId) setDate(new Date().toISOString().slice(0, 10));
@@ -125,7 +125,12 @@ function VendorBalanceContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editId]);
 
-  useEffect(() => setEstRate(""), [vendorId]);
+  // Spending in a different currency than what's held is only offered outside "apply" --
+  // an order's due amount is fixed in its own currency, so applying to it can't convert.
+  useEffect(() => {
+    setSpendCurrency(currency);
+    setSpendRate("");
+  }, [currency, vendorId, action]);
 
   const vendor = vendors.find((v) => v.id === vendorId);
   const heldCurrencies = useMemo(() => {
@@ -146,6 +151,14 @@ function VendorBalanceContent() {
   const totalHeld =
     (vendor?.held[currency] ?? 0) +
     (editId && vendorId === originalEditVendorId && currency === originalEditCurrency ? originalEditAmount : 0);
+
+  // "Amount to spend" is typed in spendCurrency; convertedAmt is what actually gets
+  // deducted from the vendor's real balance (held in `currency`).
+  const convertingSpend = action !== "apply" && spendCurrency !== currency;
+  const spendRateNum = Number(spendRate);
+  const typedAmt = Number(amount) || 0;
+  const convertedAmt = convertingSpend && spendRateNum > 0 ? convertByRate(typedAmt, spendRateNum, spendCurrency, currency) : typedAmt;
+  const spendMax = convertingSpend ? (spendRateNum > 0 ? convertByRate(totalHeld, spendRateNum, currency, spendCurrency) : undefined) : totalHeld;
 
   const recipients =
     action === "Transfer"
@@ -169,14 +182,15 @@ function VendorBalanceContent() {
   );
 
   const isTransferSplit = action === "Transfer" && toContactId;
-  const effectiveApplied = paymentUse === "OrderOnly" ? amount : appliedAmount;
+  const effectiveApplied = paymentUse === "OrderOnly" ? String(convertedAmt) : appliedAmount;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const amt = Number(amount);
     if (!vendor) return setError("Choose a vendor");
-    if (!amt || amt <= 0) return setError("Amount must be greater than 0");
+    if (!typedAmt || typedAmt <= 0) return setError("Amount must be greater than 0");
+    if (convertingSpend && !(spendRateNum > 0)) return setError(`Enter the ${spendCurrency}→${currency} rate to convert`);
+    const amt = convertedAmt;
     if (amt - totalHeld > 0.01) {
       return setError(`Vendor only holds ${currency} ${totalHeld.toFixed(2)} in total balance`);
     }
@@ -221,7 +235,9 @@ function VendorBalanceContent() {
                 receivingOrderId: isTransferSplit ? (paymentUse === "OnAccountOnly" ? "" : orderId) : orderId,
                 appliedAmount: isTransferSplit ? Number(effectiveApplied || 0) : undefined,
                 date,
-                note,
+                note: convertingSpend
+                  ? [note, `Entered as ${spendCurrency} ${typedAmt.toFixed(2)} @ ${spendRateNum} → ${currency} ${amt.toFixed(2)}`].filter(Boolean).join("\n\n")
+                  : note,
                 proofUrl,
               }),
             });
@@ -332,33 +348,6 @@ function VendorBalanceContent() {
           </div>
         </div>
 
-        {heldCurrencies.length > 0 && (() => {
-          const [heldCurrency, heldAmt] = heldCurrencies[0];
-          const targets = ["USD", "RMB", "INR"].filter((c) => c !== heldCurrency);
-          const rate = Number(estRate);
-          const estimate = rate > 0 ? convertByRate(heldAmt, rate, heldCurrency, estTarget) : null;
-          return (
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: -8 }}>
-              <span className="muted" style={{ fontSize: 13 }}>≈</span>
-              <select
-                value={targets.includes(estTarget) ? estTarget : targets[0]}
-                onChange={(e) => setEstTarget(e.target.value)}
-                style={{ width: "auto" }}
-              >
-                {targets.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <span className="muted" style={{ fontSize: 13 }}>at rate</span>
-              <input
-                type="number" step="any" placeholder={`${heldCurrency}→${estTarget} rate`}
-                value={estRate} onChange={(e) => setEstRate(e.target.value)}
-                style={{ width: 110 }}
-              />
-              {estimate != null && <span className="badge info">≈ {estTarget} {estimate.toFixed(2)}</span>}
-              <span className="muted" style={{ fontSize: 12 }}>Quick estimate only — not saved, spending still happens in {heldCurrency}.</span>
-            </div>
-          );
-        })()}
-
         <div>
           <label>Date</label>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
@@ -427,18 +416,47 @@ function VendorBalanceContent() {
           </div>
         )}
 
+        {action !== "apply" && heldCurrencies.length > 0 && (
+          <div className="grid" style={{ gridTemplateColumns: convertingSpend ? "1fr 1fr" : "1fr" }}>
+            <div>
+              <label>Spend in</label>
+              <select value={spendCurrency} onChange={(e) => setSpendCurrency(e.target.value)}>
+                <option value={currency}>{currency} (vendor&apos;s balance)</option>
+                {["USD", "RMB", "INR"].filter((c) => c !== currency).map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            {convertingSpend && (
+              <div>
+                <label>Rate ({spendCurrency}→{currency})</label>
+                <input
+                  type="number" step="any" value={spendRate}
+                  onChange={(e) => setSpendRate(e.target.value)}
+                  placeholder="e.g. 83"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         <div>
-          <label>Amount to spend ({currency})</label>
+          <label>Amount to spend ({spendCurrency || currency})</label>
           <input
             type="number"
             step="any"
             value={amount}
-            max={totalHeld}
+            max={spendMax}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder={totalHeld > 0 ? `Max ${totalHeld.toFixed(2)}` : "0.00"}
+            placeholder={spendMax && spendMax > 0 ? `Max ${spendMax.toFixed(2)}` : "0.00"}
             required
-            disabled={!vendor || totalHeld <= 0}
+            disabled={!vendor || totalHeld <= 0 || (convertingSpend && !(spendRateNum > 0))}
           />
+          {convertingSpend && spendRateNum > 0 && typedAmt > 0 && (
+            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              = {currency} {convertedAmt.toFixed(2)} from the vendor&apos;s actual balance
+            </p>
+          )}
         </div>
 
         {isTransferSplit && (
@@ -469,7 +487,7 @@ function VendorBalanceContent() {
                       setOrderId(e.target.value);
                       const o = targetOrders.find((x) => x.id === e.target.value);
                       if (paymentUse === "OrderOnly" && o) {
-                        setAppliedAmount(String(Math.min(o.due, Number(amount) || o.due)));
+                        setAppliedAmount(String(Math.min(o.due, convertedAmt || o.due)));
                       }
                     }}
                     required
@@ -507,16 +525,17 @@ function VendorBalanceContent() {
               {paymentUse === "OnAccountOnly" && `All of it is held on the receiving vendor's account.`}
               {paymentUse === "OrderPlusOnAccount" &&
                 `${(Number(appliedAmount) || 0).toFixed(2)} pays the order, ${(
-                  (Number(amount) || 0) - (Number(appliedAmount) || 0)
+                  convertedAmt - (Number(appliedAmount) || 0)
                 ).toFixed(2)} is held on account.`}
             </p>
           </div>
         )}
 
-        {vendor && amount && Number(amount) > 0 && (
+        {vendor && typedAmt > 0 && (!convertingSpend || spendRateNum > 0) && (
           <p className="muted" style={{ fontSize: 13 }}>
-            Before → Change → After: {currency} {totalHeld.toFixed(2)} → -{Number(amount).toFixed(2)} →{" "}
-            {(totalHeld - Number(amount)).toFixed(2)} remaining held by {vendor.name}
+            Before → Change → After: {currency} {totalHeld.toFixed(2)} → -{convertedAmt.toFixed(2)} →{" "}
+            {(totalHeld - convertedAmt).toFixed(2)} remaining held by {vendor.name}
+            {convertingSpend && ` (entered as ${spendCurrency} ${typedAmt.toFixed(2)} @ ${spendRateNum})`}
           </p>
         )}
 
