@@ -182,7 +182,13 @@ function VendorBalanceContent() {
   const convertingSpend = action !== "apply" && spendCurrency !== currency;
   const spendRateNum = Number(spendRate);
   const typedAmt = Number(amount) || 0;
-  const convertedAmt = convertingSpend && spendRateNum > 0 ? convertByRate(typedAmt, spendRateNum, spendCurrency, currency) : typedAmt;
+  // When the real-currency amount was typed directly (convertedAmtOverride), use that exact
+  // figure -- recomputing it forward through the back-derived rate (only accurate to 6 decimal
+  // places) can drift a cent or two off a clean number like 8180.00, failing the "at most two
+  // decimals" check on save.
+  const convertedAmt = convertingSpend && convertedAmtOverride !== null
+    ? Number(convertedAmtOverride) || 0
+    : convertingSpend && spendRateNum > 0 ? convertByRate(typedAmt, spendRateNum, spendCurrency, currency) : typedAmt;
 
   // The rate is now optional: instead of typing it, you can type the actual {currency} amount
   // directly (e.g. the vendor's whole real balance) and the rate is worked out backward from
