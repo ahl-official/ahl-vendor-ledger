@@ -69,6 +69,11 @@ function RecordMovementContent() {
     fetchJson<{ reference: string[]; method: string[] }>("/api/options").then(setOptionLists).catch((e) => setError(e.message));
   }, []);
 
+  // Clicking Edit on another entry navigates to a new editId on the same page without a full
+  // reload -- without this, a leftover "Saved" screen from the last save stays showing instead
+  // of the edit form, until "Record another" happened to be clicked first.
+  useEffect(() => setDone(false), [editId]);
+
   useEffect(() => {
     if (!editId) return;
     fetchJson<{ movements: MoneyMovement[] }>("/api/movements")

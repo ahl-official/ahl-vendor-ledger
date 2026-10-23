@@ -51,6 +51,11 @@ function AgentFxContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
 
+  // Clicking Edit on another entry navigates to a new editId on the same page without a full
+  // reload -- without this, a leftover "Saved" screen from the last save stays showing instead
+  // of the edit form, until it happened to be dismissed first.
+  useEffect(() => setDone(false), [editId]);
+
   useEffect(() => {
     if (!editId) return;
     fetchJson<FxConversion>(`/api/fx-conversions/${editId}`)

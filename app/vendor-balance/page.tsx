@@ -59,6 +59,11 @@ function VendorBalanceContent() {
   const [spendRate, setSpendRate] = useState("");
   const [convertedAmtOverride, setConvertedAmtOverride] = useState<string | null>(null);
 
+  // Clicking Edit on another entry navigates to a new editId on the same page without a full
+  // reload -- without this, a leftover "Saved" screen from the last save stays showing instead
+  // of the edit form, until "Do another" happened to be clicked first.
+  useEffect(() => setDone(false), [editId]);
+
   useEffect(() => {
     if (!editId) setDate(new Date().toISOString().slice(0, 10));
   }, [editId]);
