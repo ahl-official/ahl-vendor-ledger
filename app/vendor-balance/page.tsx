@@ -183,11 +183,13 @@ function VendorBalanceContent() {
   const convertedAmt = convertingSpend && spendRateNum > 0 ? convertByRate(typedAmt, spendRateNum, spendCurrency, currency) : typedAmt;
   const spendMax = convertingSpend ? (spendRateNum > 0 ? convertByRate(totalHeld, spendRateNum, currency, spendCurrency) : undefined) : totalHeld;
 
+  // Deleted (inactive) contacts drop out of pickers for new transactions, but a contact
+  // already selected (e.g. loaded for editing) stays visible so editing still works.
   const recipients =
     action === "Transfer"
-      ? contacts.filter((c) => c.roles.includes("Vendor") && c.id !== vendorId)
+      ? contacts.filter((c) => c.roles.includes("Vendor") && c.id !== vendorId && (c.active || c.id === toContactId))
       : action === "PaySupplier"
-      ? contacts.filter((c) => c.roles.includes("Supplier"))
+      ? contacts.filter((c) => c.roles.includes("Supplier") && (c.active || c.id === toContactId))
       : [];
   // Expense doesn't ask who spent it -- the system still needs a "to" contact internally,
   // so it's silently recorded against the Company.

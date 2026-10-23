@@ -105,7 +105,9 @@ function RecordMovementContent() {
   const availableTypes = editId && type === "LegacyCompanyToVendor" ? [...TYPE_OPTIONS, { value: "LegacyCompanyToVendor" as MovementType, label: "Historical Company ? Vendor", payerRole: "Company", payeeRole: "Vendor" }] : TYPE_OPTIONS;
   const cfg = availableTypes.find((t) => t.value === type)!;
   const isVendorReceipt = type === "AgentToVendor" || type === "CompanyToVendor" || type === "LegacyCompanyToVendor";
-  const byRole = (role: string) => contacts.filter((c) => c.roles.includes(role as any));
+  // Deleted (inactive) contacts drop out of pickers for new transactions, but a contact
+  // already selected (e.g. loaded for editing) stays visible so editing still works.
+  const byRole = (role: string, selectedId?: string) => contacts.filter((c) => c.roles.includes(role as any) && (c.active || c.id === selectedId));
   const vendorOrders = useMemo(
     () => orders.filter((o) => o.vendorId === payeeId && o.currency === currency && (o.due > 0.01 || o.id === orderId)),
     [orders, payeeId, currency, orderId]
@@ -233,14 +235,14 @@ function RecordMovementContent() {
             <label>Payer ({cfg.payerRole})</label>
             <select value={payerId} onChange={(e) => setPayerId(e.target.value)} required>
               <option value="">Select...</option>
-              {byRole(cfg.payerRole).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {byRole(cfg.payerRole, payerId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
             <label>Payee ({cfg.payeeRole})</label>
             <select value={payeeId} onChange={(e) => { setPayeeId(e.target.value); setOrderId(""); }} required>
               <option value="">Select...</option>
-              {byRole(cfg.payeeRole).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {byRole(cfg.payeeRole, payeeId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
         </div>

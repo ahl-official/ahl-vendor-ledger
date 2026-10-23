@@ -17,6 +17,17 @@ export const PATCH = withErrors(async (req: Request, { params }: { params: Promi
     contact: body.contact ?? "",
     notes: body.notes ?? "",
     ...(body.displayCurrency !== undefined ? { displayCurrency: body.displayCurrency } : {}),
+    ...(body.active !== undefined ? { active: !!body.active } : {}),
   });
+  return NextResponse.json({ id });
+});
+
+// "Delete" never removes a contact or any row that references it -- every past transaction,
+// order, and balance stays exactly as it is (see docs/ARCHITECTURE.md rule 1, and the Ledger's
+// own void-not-delete pattern). It only marks the contact inactive so it stops appearing as a
+// choice for NEW transactions; its full history remains visible and correct in the Ledger.
+export const DELETE = withErrors(async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
+  const { id } = await params;
+  await updateRow("Contacts", id, { active: false });
   return NextResponse.json({ id });
 });

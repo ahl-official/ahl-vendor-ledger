@@ -9,6 +9,8 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [roles, setRoles] = useState<Role[]>([]);
   const [contact, setContact] = useState("");
@@ -72,6 +74,29 @@ export default function ContactsPage() {
     load();
   };
 
+  // Never deletes the contact or any row that references it -- every past transaction, order,
+  // and balance stays exactly as it is. This only marks the contact inactive so it stops
+  // appearing as a choice for new transactions; its full history stays visible in the Ledger.
+  const deleteContact = async (c: Contact) => {
+    if (!window.confirm(`Delete "${c.name}"?\n\nThis only hides them from future transactions. All of their past transactions, orders, and balances stay exactly as they are in the Ledger -- nothing is deleted or changed there. You can restore them later.`)) {
+      return;
+    }
+    setBusyId(c.id);
+    await fetch(`/api/contacts/${c.id}`, { method: "DELETE" });
+    setBusyId(null);
+    load();
+  };
+
+  const restoreContact = async (c: Contact) => {
+    setBusyId(c.id);
+    await fetch(`/api/contacts/${c.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: c.name, roles: c.roles, contact: c.contact, notes: c.notes, active: true }),
+    });
+    setBusyId(null);
+    load();
+  };
+
   return (
     <div>
       <h1 style={{ marginBottom: 24 }}>Contacts</h1>
@@ -118,29 +143,45 @@ export default function ContactsPage() {
         <p className="error-text">{loadError}</p>
       ) : (
         <>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name or role..."
-          style={{ marginBottom: 12, maxWidth: 320 }}
-        />
+        <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name or role..."
+            style={{ maxWidth: 320 }}
+          />
+          <label style={{ display: "flex", alignItems: "center", gap: 6, textTransform: "none", fontSize: 14 }}>
+            <input type="checkbox" style={{ width: "auto" }} checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
+            Show deleted
+          </label>
+        </div>
         <table>
           <thead>
             <tr><th>Name</th><th>Roles</th><th>Contact</th><th>Notes</th><th></th></tr>
           </thead>
           <tbody>
             {contacts
+              .filter((c) => showInactive || c.active)
               .filter((c) => {
                 const q = search.trim().toLowerCase();
                 return !q || c.name.toLowerCase().includes(q) || c.roles.some((r) => r.toLowerCase().includes(q));
               })
               .map((c) => (
-              <tr key={c.id}>
-                <td>{c.name}</td>
+              <tr key={c.id} style={!c.active ? { opacity: 0.55 } : undefined}>
+                <td>{c.name} {!c.active && <span className="badge" style={{ marginLeft: 6, fontSize: 11 }}>Deleted</span>}</td>
                 <td>{c.roles.join(", ")}</td>
                 <td>{c.contact || "—"}</td>
                 <td className="muted">{c.notes || "—"}</td>
-                <td><button type="button" className="secondary" onClick={() => startEdit(c)}>Edit</button></td>
+                <td style={{ textAlign: "right" }}>
+                  {c.active ? (
+                    <>
+                      <button type="button" className="secondary" onClick={() => startEdit(c)}>Edit</button>{" "}
+                      <button type="button" className="secondary" disabled={busyId === c.id} onClick={() => deleteContact(c)}>Delete</button>
+                    </>
+                  ) : (
+                    <button type="button" className="secondary" disabled={busyId === c.id} onClick={() => restoreContact(c)}>Restore</button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

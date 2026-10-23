@@ -67,7 +67,9 @@ function EditOrderContent() {
       fetchJson<Contact[]>("/api/contacts"),
     ])
       .then(([ord, c]) => {
-        setVendors(c.filter((x) => x.roles.includes("Vendor")));
+        // Deleted (inactive) vendors drop out of the picker, but this order's own vendor
+        // stays visible even if since deleted, so the edit screen still shows correctly.
+        setVendors(c.filter((x) => x.roles.includes("Vendor") && (x.active || x.id === ord.vendorId)));
         setVendorId(ord.vendorId);
         setInvoiceRef(ord.invoiceRef || "");
         setDate(ord.date || "");

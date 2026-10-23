@@ -26,7 +26,7 @@ export default function NewOrderPage() {
   useEffect(() => {
     setDate(new Date().toISOString().slice(0, 10));
     fetchJson<Contact[]>("/api/contacts")
-      .then((c) => setVendors(c.filter((x) => x.roles.includes("Vendor"))))
+      .then((c) => setVendors(c.filter((x) => x.roles.includes("Vendor") && x.active)))
       .catch((e) => setError(e.message));
   }, []);
 
