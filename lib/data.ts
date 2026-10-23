@@ -17,6 +17,7 @@ const parseContacts = (rows: Row[]): Contact[] =>
     active: bool(r.active),
     legacyId: r.legacyId,
     createdAt: r.createdAt,
+    displayCurrency: r.displayCurrency || "",
   })).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
 const parseOrders = (rows: Row[]): Order[] =>
@@ -107,6 +108,8 @@ const parseTransfers = (rows: Row[]): Transfer[] =>
     reversed: bool(r.reversed),
     reversedReason: r.reversedReason,
     createdAt: r.createdAt,
+    rate: numOrNull(r.rate ?? ""),
+    rateCurrency: r.rateCurrency ?? "",
   }));
 
 const parseFxConversions = (rows: Row[]): FxConversion[] =>

@@ -1,4 +1,4 @@
-import { balanceSource, contactName, orderSummary, vendorHeld, type LedgerData } from "./ledger.ts";
+import { balanceSource, contactName, convertByRate, orderSummary, vendorHeld, type LedgerData } from "./ledger.ts";
 
 export interface StatementEvent {
   id: string; kind: "movement" | "transfer" | "application" | "credit_note";
@@ -36,6 +36,38 @@ function mergeSplitEvents(events: StatementEvent[]): StatementEvent[] {
   return order;
 }
 
+/** When a vendor has opted into a display currency, convert each movement/transfer event into
+ *  it IF that specific entry was itself given a rate into that exact currency when it was
+ *  recorded -- never a guessed or borrowed rate. Applications and credit notes have no rate
+ *  field, so they're left in their native currency; so is any movement/transfer whose saved
+ *  rate targets a different currency than the one chosen here. This only changes how the
+ *  Ledger page/export DISPLAY this vendor's history -- vendorHeld/spending/order-matching are
+ *  untouched, so it can never misstate what's actually spendable. */
+function applyDisplayCurrency(events: StatementEvent[], vendorId: string, d: LedgerData) {
+  const target = d.contacts.find(c => c.id === vendorId)?.displayCurrency || "";
+  if (!target) return;
+  for (const e of events) {
+    if (e.currency === target) continue;
+    let rate: number | null | undefined, rateCurrency: string | undefined;
+    if (e.kind === "movement") {
+      const m = d.movements.find(x => x.id === e.id);
+      rate = m?.quotedRate ?? m?.actualRate;
+      rateCurrency = m?.rateCurrency;
+    } else if (e.kind === "transfer") {
+      const ids = e.groupIds?.length ? e.groupIds : [e.id];
+      const t = d.transfers.find(x => ids.includes(x.id) && x.rate && x.rateCurrency);
+      rate = t?.rate;
+      rateCurrency = t?.rateCurrency;
+    }
+    if (!rate || rate <= 0 || rateCurrency !== target) continue;
+    const fromCurrency = e.currency;
+    e.note = [e.note, `Converted @ ${rate}: ${fromCurrency} ${(e.credited || e.debited).toFixed(2)} → ${target}`].filter(Boolean).join("\n\n");
+    if (e.credited) e.credited = convertByRate(e.credited, rate, fromCurrency, target);
+    if (e.debited) e.debited = convertByRate(e.debited, rate, fromCurrency, target);
+    e.currency = target;
+  }
+}
+
 /** A statement of actual held funds. Orders/expenses are separate commitments, not cash. */
 export function vendorAccount(vendorId: string, d: LedgerData) {
   const name = (id: string) => contactName(id, d.contacts);
@@ -65,6 +97,7 @@ export function vendorAccount(vendorId: string, d: LedgerData) {
   for (const c of (d.creditNotes ?? []).filter(c => c.vendorId === vendorId)) {
     events.push({ id: c.id, kind: "credit_note", date: c.date, createdAt: c.createdAt, label: c.orderId ? `Credit note · ${orders.find(o => o.id === c.orderId)?.invoiceRef || c.orderId}` : "Vendor credit on account", currency: c.currency, credited: c.amount, debited: 0, balance: 0, reversed: c.reversed, note: c.reason, proofUrl: "", legacy: false });
   }
+  applyDisplayCurrency(events, vendorId, d);
   const priority = (e: StatementEvent) => e.kind === "movement" || (e.kind === "transfer" && e.credited) ? 0 : 1;
   events.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt) || priority(a) - priority(b) || a.id.localeCompare(b.id));
   const running: Record<string, number> = {};

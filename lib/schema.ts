@@ -7,6 +7,11 @@
 export const SHEETS = {
   Contacts: [
     "id", "name", "roles", "contact", "notes", "active", "legacyId", "createdAt", "region",
+    // Vendor-only, opt-in: when set, the Ledger page shows this vendor's history/balance
+    // converted into this currency wherever a rate was actually saved on the entry -- never
+    // guessed. Off (blank) by default; must be turned on deliberately per vendor. Appended at
+    // the end -- see the rateCurrency comment on Money_Movements for why.
+    "displayCurrency",
   ],
   Orders: [
     "id", "vendorId", "invoiceRef", "date", "currency", "shippingFee", "adjustment",
@@ -38,6 +43,10 @@ export const SHEETS = {
     "id", "sourceMovementId", "fromVendorId", "toContactId", "purpose",
     "amount", "currency", "receivingOrderId", "proofUrl", "note",
     "reversed", "reversedReason", "createdAt", "date", "legacyId",
+    // Set when this transfer was entered via "Spend in" a different currency than the sender's
+    // real balance (see app/vendor-balance/page.tsx) -- lets a vendor's Ledger page convert
+    // this specific entry if displayCurrency is on. Appended at the end, same reason as above.
+    "rate", "rateCurrency",
   ],
   // Explicitly links an agent's INR funding (a CompanyToAgent movement) to the RMB (or
   // other-currency) payout it paid for (an AgentToVendor/AgentToCompany movement). Never
@@ -87,6 +96,7 @@ export type TransferPurpose = (typeof TRANSFER_PURPOSES)[number];
 export interface Contact {
   id: string; name: string; roles: Role[]; contact: string; notes: string;
   active: boolean; legacyId: string; createdAt: string; region?: string;
+  displayCurrency?: string;
 }
 
 export interface Order {
@@ -124,6 +134,7 @@ export interface Transfer {
   receivingOrderId: string; proofUrl: string; note: string;
   reversed: boolean; reversedReason: string; createdAt: string;
   date?: string; legacyId?: string;
+  rate?: number | null; rateCurrency?: string;
 }
 
 export interface FxConversion {

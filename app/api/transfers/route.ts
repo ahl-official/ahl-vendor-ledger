@@ -35,7 +35,7 @@ export const POST = withErrors(async (req: Request) => {
     const used = Math.round(Math.min(needed, s.remaining) * 100) / 100;
     if (used <= 0) break;
     const onOrder = Math.round(Math.min(used, appliedNeeded) * 100) / 100;
-    const base = { fromVendorId: from.id, sourceMovementId: s.movement.id, toContactId: to.id, purpose, currency, proofUrl: String(body.proofUrl || ""), note: String(body.note || ""), reversed: false, reversedReason: "", createdAt, date: String(body.date || createdAt.slice(0, 10)) };
+    const base = { fromVendorId: from.id, sourceMovementId: s.movement.id, toContactId: to.id, purpose, currency, proofUrl: String(body.proofUrl || ""), note: String(body.note || ""), reversed: false, reversedReason: "", createdAt, date: String(body.date || createdAt.slice(0, 10)), rate: body.rate ? Number(body.rate) : null, rateCurrency: String(body.rateCurrency || "") };
     if (onOrder > 0) records.push({ id: newId("TRF"), ...base, amount: onOrder, receivingOrderId: orderId });
     const held = Math.round((used - onOrder) * 100) / 100;
     if (held > 0) records.push({ id: newId("TRF"), ...base, amount: held, receivingOrderId: "" });

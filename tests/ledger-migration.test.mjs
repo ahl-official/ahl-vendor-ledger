@@ -122,3 +122,51 @@ test('direct company payment credits the vendor once and leaves agent funding un
   assert.equal(vendorHeld('vendor', 'RMB', d), 0);
   assert.equal(orderSummary(d.orders[0], d).due, 90);
 });
+
+test('an incidental rate on a movement never converts display without the vendor opting in (the Hao Hao regression)', () => {
+  const d = empty();
+  // Rate/rateCurrency present on the movement, but this vendor never opted into a display
+  // currency -- this is exactly the data shape that corrupted a real vendor's balance once
+  // before a vendor-level opt-in was added. Must stay untouched.
+  d.movements.push({ ...receipt('old', 'vendor', 8180, 'CompanyToVendor', 'RMB'), quotedRate: 15, rateCurrency: 'INR' });
+  assert.equal(vendorHeld('vendor', 'RMB', d), 8180);
+  const held = vendorAccount('vendor', d).events[0];
+  assert.equal(held.currency, 'RMB');
+  assert.equal(held.credited, 8180);
+});
+
+test('opting a vendor into a display currency converts only entries with a matching saved rate', () => {
+  const d = empty();
+  d.contacts.push({ id: 'vendor', name: 'V', roles: ['Vendor'], displayCurrency: 'USD' });
+  // Has a rate into USD -- converts for display.
+  d.movements.push({ ...receipt('with-rate', 'vendor', 8180, 'CompanyToVendor', 'RMB'), quotedRate: 7.1, rateCurrency: 'USD' });
+  // Same vendor, no rate at all -- must stay RMB, not be guessed or dropped.
+  d.movements.push(receipt('no-rate', 'vendor', 500, 'CompanyToVendor', 'RMB'));
+  // Has a rate, but into a DIFFERENT currency than the vendor's chosen display -- must stay RMB too.
+  d.movements.push({ ...receipt('wrong-target', 'vendor', 200, 'CompanyToVendor', 'RMB'), quotedRate: 15, rateCurrency: 'INR' });
+  const events = vendorAccount('vendor', d).events;
+  const withRate = events.find(e => e.id === 'with-rate');
+  const noRate = events.find(e => e.id === 'no-rate');
+  const wrongTarget = events.find(e => e.id === 'wrong-target');
+  assert.equal(withRate.currency, 'USD');
+  assert.equal(Math.round(withRate.credited * 100) / 100, 1152.11); // 8180 / 7.1, same convention as convertByRate
+  assert.equal(noRate.currency, 'RMB');
+  assert.equal(noRate.credited, 500);
+  assert.equal(wrongTarget.currency, 'RMB');
+  assert.equal(wrongTarget.credited, 200);
+  // Display conversion never touches the real spendable balance.
+  assert.equal(vendorHeld('vendor', 'RMB', d), 8880);
+  assert.equal(vendorHeld('vendor', 'USD', d), 0);
+});
+
+test('a vendor-to-vendor transfer with a saved rate converts for display the same way', () => {
+  const d = empty();
+  d.contacts.push({ id: 'b', name: 'B', roles: ['Vendor'], displayCurrency: 'USD' });
+  d.movements.push(receipt('fund', 'a', 1000));
+  d.transfers.push({ ...transfer('a-to-b', 'a', 'b', 710), sourceMovementId: 'fund', rate: 7.1, rateCurrency: 'USD' });
+  const event = vendorAccount('b', d).events[0];
+  assert.equal(event.currency, 'USD');
+  assert.equal(Math.round(event.credited * 100) / 100, 100); // 710 RMB / 7.1
+  // Real balance stays RMB -- this is a display conversion only.
+  assert.equal(vendorHeld('b', 'RMB', d), 710);
+});

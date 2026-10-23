@@ -170,6 +170,18 @@ export default function LedgerPage() {
     window.scrollTo({ top: 0 });
   };
 
+  // Opt-in, per vendor -- only entries that were themselves given a rate into this currency
+  // convert (see lib/accounts.ts applyDisplayCurrency); nothing is ever guessed.
+  const setVendorDisplayCurrency = async (id: string, value: string) => {
+    const c = contacts.find((x) => x.id === id);
+    if (!c) return;
+    await fetch(`/api/contacts/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: c.name, roles: c.roles, contact: c.contact, notes: c.notes, displayCurrency: value }),
+    });
+    loadLedger();
+  };
+
   const vendorOrders = roleFilter === "Vendor" ? orders.filter((o) => o.vendorId === selectedId) : [];
   const vendorHeld = roleFilter === "Vendor" ? vendors.find((v) => v.id === selectedId)?.held : undefined;
   // Reuse a rate already entered when the money was recorded, instead of asking for it again --
@@ -303,7 +315,21 @@ export default function LedgerPage() {
                       <span key={c} className={`badge ${amt > 0 ? "hold" : "err"}`} style={{ marginRight: 6 }}>{c} {amt.toFixed(2)}</span>
                     ))
                   : <span className="muted">Nothing held</span>}
-                {vendorHeld && Object.entries(vendorHeld).filter(([, amt]) => Math.abs(amt) > 0.01).length > 0 && (() => {
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+                  <span className="muted" style={{ fontSize: 13 }}>Show this vendor&apos;s history in</span>
+                  <select
+                    value={selected.displayCurrency || ""}
+                    onChange={(e) => setVendorDisplayCurrency(selected.id, e.target.value)}
+                    style={{ width: "auto" }}
+                  >
+                    <option value="">(as received)</option>
+                    {["USD", "RMB", "INR"].map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  Converts entries that were given a conversion rate into this currency when they were recorded. Entries with no saved rate stay in their own currency.
+                </p>
+                {!selected.displayCurrency && vendorHeld && Object.entries(vendorHeld).filter(([, amt]) => Math.abs(amt) > 0.01).length > 0 && (() => {
                   const [heldCurrency, heldAmt] = Object.entries(vendorHeld).filter(([, amt]) => Math.abs(amt) > 0.01)[0];
                   const targets = ["USD", "RMB", "INR"].filter((c) => c !== heldCurrency);
                   const rate = Number(estRate);
@@ -328,9 +354,11 @@ export default function LedgerPage() {
                     </div>
                   );
                 })()}
-                <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                  Quick estimate only — type today&apos;s rate to see the value in another currency. Nothing is saved.
-                </p>
+                {!selected.displayCurrency && (
+                  <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    Quick estimate only — type today&apos;s rate to see the value in another currency. Nothing is saved.
+                  </p>
+                )}
               </>
             )}
             {roleFilter === "Agent" && <><p className="field-label">Running position</p>{Object.entries(agents.find(a => a.id === selectedId)?.position ?? {}).map(([cur, amount]) => <span key={cur} className={`badge agent-position ${Math.abs(amount) < 0.005 ? "ok" : amount > 0 ? "hold" : "err"}`}>{Math.abs(amount) < 0.005 ? `Settled (${cur} 0.00)` : amount > 0 ? `Agent holds: ${cur} ${amount.toFixed(2)}` : `Company owes: ${cur} ${(-amount).toFixed(2)}`}</span>)}</>}

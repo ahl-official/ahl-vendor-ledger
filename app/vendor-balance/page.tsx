@@ -266,6 +266,8 @@ function VendorBalanceContent() {
                   ? [note, `Entered as ${spendCurrency} ${typedAmt.toFixed(2)} @ ${spendRateNum} → ${currency} ${amt.toFixed(2)}`].filter(Boolean).join("\n\n")
                   : note,
                 proofUrl,
+                rate: convertingSpend ? spendRateNum : undefined,
+                rateCurrency: convertingSpend ? spendCurrency : undefined,
               }),
             });
       setSaving(false);

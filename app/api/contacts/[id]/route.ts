@@ -16,6 +16,7 @@ export const PATCH = withErrors(async (req: Request, { params }: { params: Promi
     roles: roles.join(","),
     contact: body.contact ?? "",
     notes: body.notes ?? "",
+    ...(body.displayCurrency !== undefined ? { displayCurrency: body.displayCurrency } : {}),
   });
   return NextResponse.json({ id });
 });
