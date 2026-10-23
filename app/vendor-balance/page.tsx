@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Application, Contact, CreditNote, MoneyMovement, Transfer } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
 import { ProofUpload } from "@/app/components/ProofUpload";
-import { convertByRate } from "@/lib/ledger";
+import { convertByRate, deriveRateFromConverted } from "@/lib/ledger";
 
 type Receipt = { movementId: string; date: string; currency: string; remaining: number };
 type VendorLedger = Contact & { held: Record<string, number>; openReceipts: Receipt[] };
@@ -57,6 +57,7 @@ function VendorBalanceContent() {
   const [originalEditCurrency, setOriginalEditCurrency] = useState("");
   const [spendCurrency, setSpendCurrency] = useState("");
   const [spendRate, setSpendRate] = useState("");
+  const [convertedAmtOverride, setConvertedAmtOverride] = useState<string | null>(null);
 
   useEffect(() => {
     if (!editId) setDate(new Date().toISOString().slice(0, 10));
@@ -148,6 +149,7 @@ function VendorBalanceContent() {
   // Reuse a rate already entered when money was received into this vendor's balance,
   // instead of asking for it again, when switching to spend in a different currency.
   useEffect(() => {
+    setConvertedAmtOverride(null);
     if (spendCurrency === currency) return setSpendRate("");
     const withRate = movements
       .filter((m) => !m.reversed && m.payeeId === vendorId && m.currency === currency && m.rateCurrency === spendCurrency && (m.quotedRate || m.actualRate))
@@ -181,7 +183,20 @@ function VendorBalanceContent() {
   const spendRateNum = Number(spendRate);
   const typedAmt = Number(amount) || 0;
   const convertedAmt = convertingSpend && spendRateNum > 0 ? convertByRate(typedAmt, spendRateNum, spendCurrency, currency) : typedAmt;
-  const spendMax = convertingSpend ? (spendRateNum > 0 ? convertByRate(totalHeld, spendRateNum, currency, spendCurrency) : undefined) : totalHeld;
+
+  // The rate is now optional: instead of typing it, you can type the actual {currency} amount
+  // directly (e.g. the vendor's whole real balance) and the rate is worked out backward from
+  // that -- same "type the answer you know, not the rate" pattern as Record Money's conversion
+  // box. Typing a rate still works the normal forward way.
+  const displayConvertedAmt = convertedAmtOverride !== null ? convertedAmtOverride : convertingSpend && spendRateNum > 0 && typedAmt > 0 ? String(Number(convertedAmt.toFixed(2))) : "";
+  const handleConvertedAmtChange = (val: string) => {
+    if (val !== "" && !/^\d*\.?\d*$/.test(val)) return;
+    setConvertedAmtOverride(val);
+    const newConverted = Number(val);
+    if (newConverted > 0 && typedAmt > 0) {
+      setSpendRate(String(Math.round(deriveRateFromConverted(typedAmt, newConverted, spendCurrency, currency) * 1000000) / 1000000));
+    }
+  };
 
   // Deleted (inactive) contacts drop out of pickers for new transactions, but a contact
   // already selected (e.g. loaded for editing) stays visible so editing still works.
@@ -463,9 +478,12 @@ function VendorBalanceContent() {
                 <label>Rate ({spendCurrency}→{currency})</label>
                 <input
                   type="number" step="any" value={spendRate}
-                  onChange={(e) => setSpendRate(e.target.value)}
+                  onChange={(e) => { setSpendRate(e.target.value); setConvertedAmtOverride(null); }}
                   placeholder="e.g. 83"
                 />
+                <p className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                  Optional — if you already know the {currency} amount, type it below instead and the rate works out on its own.
+                </p>
               </div>
             )}
           </div>
@@ -477,16 +495,24 @@ function VendorBalanceContent() {
             type="number"
             step="any"
             value={amount}
-            max={spendMax}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder={spendMax && spendMax > 0 ? `Max ${spendMax.toFixed(2)}` : "0.00"}
+            onChange={(e) => { setAmount(e.target.value); setConvertedAmtOverride(null); }}
+            placeholder="0.00"
             required
-            disabled={!vendor || totalHeld <= 0 || (convertingSpend && !(spendRateNum > 0))}
+            disabled={!vendor || totalHeld <= 0}
           />
-          {convertingSpend && spendRateNum > 0 && typedAmt > 0 && (
-            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              = {currency} {convertedAmt.toFixed(2)} from the vendor&apos;s actual balance
-            </p>
+          {convertingSpend && (
+            <div style={{ marginTop: 6 }}>
+              <label style={{ fontSize: 12 }}>= {currency} (the vendor&apos;s real balance it actually spends)</label>
+              <input
+                type="number" step="any"
+                value={displayConvertedAmt}
+                max={totalHeld}
+                onChange={(e) => handleConvertedAmtChange(e.target.value)}
+                placeholder={totalHeld > 0 ? `Max ${totalHeld.toFixed(2)}` : "0.00"}
+                style={{ maxWidth: 220 }}
+                disabled={!vendor || totalHeld <= 0}
+              />
+            </div>
           )}
         </div>
 
