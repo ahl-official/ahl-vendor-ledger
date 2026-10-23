@@ -184,11 +184,15 @@ function VendorBalanceContent() {
   const typedAmt = Number(amount) || 0;
   // When the real-currency amount was typed directly (convertedAmtOverride), use that exact
   // figure -- recomputing it forward through the back-derived rate (only accurate to 6 decimal
-  // places) can drift a cent or two off a clean number like 8180.00, failing the "at most two
-  // decimals" check on save.
-  const convertedAmt = convertingSpend && convertedAmtOverride !== null
+  // places) can drift off a clean number. And ANY rate times ANY amount routinely lands on more
+  // than 2 decimal places even with no float error at all (e.g. 1209.33 x 6.77 = 8187.1341
+  // exactly) -- real money only ever has cents, so round to 2 decimals here, the one place this
+  // value is computed, rather than leaving it to drift into the "at most two decimals" check
+  // the backend applies on save.
+  const convertedAmtRaw = convertingSpend && convertedAmtOverride !== null
     ? Number(convertedAmtOverride) || 0
     : convertingSpend && spendRateNum > 0 ? convertByRate(typedAmt, spendRateNum, spendCurrency, currency) : typedAmt;
+  const convertedAmt = Math.round(convertedAmtRaw * 100) / 100;
 
   // The rate is now optional: instead of typing it, you can type the actual {currency} amount
   // directly (e.g. the vendor's whole real balance) and the rate is worked out backward from
