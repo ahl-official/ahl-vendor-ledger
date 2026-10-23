@@ -231,6 +231,12 @@ tbody tr:hover { background-color: var(--soft); }
   background: var(--err-bg);
 }
 
+.icon-btn.restore-btn:hover:not(:disabled) {
+  color: var(--ok-border);
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+}
+
 .icon-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;

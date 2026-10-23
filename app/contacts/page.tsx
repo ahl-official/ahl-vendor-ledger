@@ -173,14 +173,32 @@ export default function ContactsPage() {
                 <td>{c.contact || "—"}</td>
                 <td className="muted">{c.notes || "—"}</td>
                 <td style={{ textAlign: "right" }}>
-                  {c.active ? (
-                    <>
-                      <button type="button" className="secondary" onClick={() => startEdit(c)}>Edit</button>{" "}
-                      <button type="button" className="secondary" disabled={busyId === c.id} onClick={() => deleteContact(c)}>Delete</button>
-                    </>
-                  ) : (
-                    <button type="button" className="secondary" disabled={busyId === c.id} onClick={() => restoreContact(c)}>Restore</button>
-                  )}
+                  <div className="ledger-actions" style={{ justifyContent: "flex-end" }}>
+                    {c.active ? (
+                      <>
+                        <button type="button" className="icon-btn edit-btn" title="Edit contact" aria-label="Edit contact" onClick={() => startEdit(c)}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
+                        <button type="button" className="icon-btn delete-btn" title="Delete contact" aria-label="Delete contact" disabled={busyId === c.id} onClick={() => deleteContact(c)}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            <line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />
+                          </svg>
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className="icon-btn restore-btn" title="Restore contact" aria-label="Restore contact" disabled={busyId === c.id} onClick={() => restoreContact(c)}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 12a9 9 0 1 0 3-6.7" />
+                          <polyline points="3 4 3 9 8 9" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
