@@ -164,6 +164,21 @@ export default function LedgerPage() {
     return out.sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
   }, [selectedId, roleFilter, movements, transfers, applications, fxConversions, creditNotes, orders, contacts]);
 
+  // "Currently held" should match the Transactions table once a vendor has a display
+  // currency on -- built from the same (already-converted) events, not the raw real
+  // per-currency balance, so entries without a saved rate still show up honestly as
+  // whatever currency they stayed in instead of being silently dropped or merged in.
+  const displayHeld = useMemo(() => {
+    if (roleFilter !== "Vendor" || !selectedId) return null;
+    const vendor = contacts.find((c) => c.id === selectedId);
+    if (!vendor?.displayCurrency) return null;
+    const byCurrency: Record<string, number> = {};
+    for (const e of events) {
+      if (!(e.currency in byCurrency) && e.runningBalance != null) byCurrency[e.currency] = e.runningBalance;
+    }
+    return byCurrency;
+  }, [roleFilter, selectedId, contacts, events]);
+
   const openLedger = (role: Role, id: string) => {
     setRoleFilter(role);
     setSelectedId(id);
@@ -310,11 +325,15 @@ export default function LedgerPage() {
             {roleFilter === "Vendor" && (
               <>
                 <p className="field-label">Currently held</p>
-                {vendorHeld && Object.entries(vendorHeld).filter(([, amt]) => Math.abs(amt) > 0.01).length
-                  ? Object.entries(vendorHeld).filter(([, amt]) => Math.abs(amt) > 0.01).map(([c, amt]) => (
-                      <span key={c} className={`badge ${amt > 0 ? "hold" : "err"}`} style={{ marginRight: 6 }}>{c} {amt.toFixed(2)}</span>
-                    ))
-                  : <span className="muted">Nothing held</span>}
+                {(() => {
+                  const shown = displayHeld ?? vendorHeld;
+                  const rows = shown && Object.entries(shown).filter(([, amt]) => Math.abs(amt) > 0.01);
+                  return rows && rows.length
+                    ? rows.map(([c, amt]) => (
+                        <span key={c} className={`badge ${amt > 0 ? "hold" : "err"}`} style={{ marginRight: 6 }}>{c} {amt.toFixed(2)}</span>
+                      ))
+                    : <span className="muted">Nothing held</span>;
+                })()}
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
                   <span className="muted" style={{ fontSize: 13 }}>Show this vendor&apos;s history in</span>
                   <select
