@@ -596,7 +596,19 @@ export default function LedgerPage() {
           <h2 style={{ marginBottom: 12 }}>Vendors — currently held</h2>
           <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: 32 }}>
             {vendors.map((v) => {
-              const held = Object.entries(v.held).filter(([, amt]) => Math.abs(amt) > 0.01);
+              // Same conversion as the vendor's own page: only entries with a saved rate
+              // convert, picking each currency's latest running balance from the already-
+              // converted events (see displayHeld above / lib/accounts.ts applyDisplayCurrency).
+              const shownHeld = v.displayCurrency
+                ? (() => {
+                    const byCurrency: Record<string, number> = {};
+                    for (const e of vendorAccount(v.id, { contacts, orders, orderItems: [], movements, applications, transfers, fxConversions, creditNotes }).events) {
+                      if (!e.reversed && !(e.currency in byCurrency)) byCurrency[e.currency] = e.balance;
+                    }
+                    return byCurrency;
+                  })()
+                : v.held;
+              const held = Object.entries(shownHeld).filter(([, amt]) => Math.abs(amt) > 0.01);
               return (
                 <div key={v.id} className="card clickable" role="button" tabIndex={0} onClick={() => openLedger("Vendor", v.id)} onKeyDown={(e) => e.key === "Enter" && openLedger("Vendor", v.id)}>
                   <strong>{v.name}</strong>
