@@ -29,6 +29,7 @@ function VendorBalanceContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("editId");
+  const editIds = editId ? editId.split(",").filter(Boolean) : [];
   const editKind = searchParams.get("kind") === "application" ? "application" : "transfer";
 
   const [vendors, setVendors] = useState<VendorLedger[]>([]);
@@ -76,20 +77,27 @@ function VendorBalanceContent() {
 
   useEffect(() => {
     if (!editId) return;
+    const ids = editId.split(",").filter(Boolean);
     type LedgerFull = { movements: MoneyMovement[]; applications: Application[]; transfers: Transfer[]; creditNotes: CreditNote[] };
     fetchJson<LedgerFull>("/api/ledger")
       .then(async (d) => {
         if (editKind === "transfer") {
-          const t = d.transfers.find((x) => x.id === editId);
-          if (!t) throw new Error("That entry could not be found — it may already be edited elsewhere.");
+          // A single "Transfer/Pay Supplier" action can have split into several Transfer rows
+          // (one per source receipt, see app/api/transfers/route.ts) -- editing the merged
+          // ledger line edits all of them together: same vendor/recipient/purpose by
+          // construction, so the first one's details represent the whole group.
+          const ts = d.transfers.filter((x) => ids.includes(x.id));
+          if (!ts.length) throw new Error("That entry could not be found — it may already be edited elsewhere.");
+          const t = ts[0];
+          const totalAmount = ts.reduce((s, x) => s + x.amount, 0);
           setVendorId(t.fromVendorId);
           setOriginalEditVendorId(t.fromVendorId);
           setCurrency(t.currency);
           setOriginalEditCurrency(t.currency);
           setAction(t.purpose === "PaySupplier" ? "PaySupplier" : t.purpose === "Expense" ? "Expense" : "Transfer");
           setToContactId(t.toContactId);
-          setAmount(String(t.amount));
-          setOriginalEditAmount(t.amount);
+          setAmount(String(totalAmount));
+          setOriginalEditAmount(totalAmount);
           setDate(t.date ?? t.createdAt.slice(0, 10));
           setNote(t.note);
           setProofUrl(t.proofUrl);
@@ -101,8 +109,13 @@ function VendorBalanceContent() {
             } else setPaymentUse("OnAccountOnly");
           }
         } else {
-          const a = d.applications.find((x) => x.id === editId);
-          if (!a) throw new Error("That entry could not be found — it may already be edited elsewhere.");
+          // Likewise, one "Apply to Order" click can split FIFO across several of the
+          // vendor's receipts (see app/api/applications/route.ts) -- same order/vendor/
+          // currency by construction, so sum the amounts and edit them as one.
+          const as = d.applications.filter((x) => ids.includes(x.id));
+          if (!as.length) throw new Error("That entry could not be found — it may already be edited elsewhere.");
+          const a = as[0];
+          const totalAmount = as.reduce((s, x) => s + x.amount, 0);
           const movement = d.movements.find((m) => m.id === a.movementId);
           const vId = movement?.payeeId ?? "";
           const curr = movement?.currency ?? "RMB";
@@ -113,8 +126,8 @@ function VendorBalanceContent() {
           setAction("apply");
           setOrderId(a.orderId);
           setOriginalEditOrderId(a.orderId);
-          setAmount(String(a.amount));
-          setOriginalEditAmount(a.amount);
+          setAmount(String(totalAmount));
+          setOriginalEditAmount(totalAmount);
           setDate(a.date ?? a.createdAt.slice(0, 10));
         }
         setEditLoaded(true);
@@ -212,16 +225,20 @@ function VendorBalanceContent() {
     setSaving(true);
     try {
       if (editId) {
-        // Void the previous entry -- never delete it. It stays visible (struck-through)
-        // in the Ledger as history; see docs/ARCHITECTURE.md rule 1.
-        const voidUrl = editKind === "transfer" ? `/api/transfers/${editId}` : `/api/applications/${editId}`;
-        const voidRes = await fetch(voidUrl, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
-        });
-        if (!voidRes.ok) {
-          const vErr = await voidRes.json().catch(() => ({}));
-          throw new Error(vErr.error || "Failed to update previous entry");
+        // Void every original entry in the group -- never delete them. They stay visible
+        // (struck-through) in the Ledger as history; see docs/ARCHITECTURE.md rule 1.
+        // Sequential, not Promise.all: concurrent writes to the same sheet tab can race
+        // and silently drop one (see docs/DECISIONS.md, 2026-10-17 incident).
+        const voidBase = editKind === "transfer" ? "/api/transfers/" : "/api/applications/";
+        for (const id of editIds) {
+          const voidRes = await fetch(`${voidBase}${id}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reason: "Edited — replaced by a corrected entry" }),
+          });
+          if (!voidRes.ok) {
+            const vErr = await voidRes.json().catch(() => ({}));
+            throw new Error(vErr.error || "Failed to update previous entry");
+          }
         }
       }
 
@@ -296,7 +313,7 @@ function VendorBalanceContent() {
       {editId && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
           <span className="badge" style={{ background: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" }}>
-            Editing Entry {editId}
+            {editIds.length > 1 ? `Editing ${editIds.length} entries` : `Editing Entry ${editId}`}
           </span>
           <span className="muted" style={{ fontSize: 13 }}>
             Changes will only be applied when you click &quot;Save correction&quot;. Leaving this page leaves the original entry untouched.

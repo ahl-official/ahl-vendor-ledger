@@ -107,7 +107,7 @@ export default function LedgerPage() {
       out.push(...statement.events.filter(e => !e.reversed).map(e => ({
         id: e.id, kind: e.kind, date: e.date, createdAt: e.createdAt, label: e.label,
         amount: e.credited - e.debited, currency: e.currency, note: e.note,
-        editHref: (e.groupIds?.length ?? 1) > 1 ? null : e.kind === "movement" ? (movements.find(m => m.id === e.id)?.type === "OpeningBalance" ? null : `/payments/new?editId=${e.id}`) : e.kind === "credit_note" ? (creditNotes.find(c => c.id === e.id)?.orderId ? `/orders/${creditNotes.find(c => c.id === e.id)?.orderId}` : null) : `/vendor-balance?editId=${e.id}${e.kind === "application" ? "&kind=application" : ""}`,
+        editHref: e.kind === "movement" ? (movements.find(m => m.id === e.id)?.type === "OpeningBalance" ? null : `/payments/new?editId=${e.id}`) : e.kind === "credit_note" ? (creditNotes.find(c => c.id === e.id)?.orderId ? `/orders/${creditNotes.find(c => c.id === e.id)?.orderId}` : null) : `/vendor-balance?editId=${(e.groupIds?.length ? e.groupIds : [e.id]).join(",")}${e.kind === "application" ? "&kind=application" : ""}`,
         credited: e.credited, debited: e.debited, runningBalance: e.balance, groupIds: e.groupIds,
       })));
     } else if (roleFilter === "Agent") {

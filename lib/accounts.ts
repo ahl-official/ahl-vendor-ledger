@@ -7,15 +7,17 @@ export interface StatementEvent {
   groupIds?: string[];
 }
 
-/** One vendor-to-vendor transfer can write several Transfer rows (one per source receipt it
- * drew from, see app/api/transfers/route.ts). Shown separately they look like unrelated
- * part-payments; merge rows written by the same action (same moment, same label/currency/
+/** A single user action can write several rows of the same kind: one vendor-to-vendor transfer
+ * can draw from several source receipts (see app/api/transfers/route.ts), and one "Apply to
+ * Order" can likewise be split FIFO across several of the vendor's receipts (see
+ * app/api/applications/route.ts). Shown separately they look like unrelated part-payments or
+ * duplicate charges; merge rows written by the same action (same moment, same label/currency/
  * reversed state) back into one statement line, keeping every underlying id for void/edit.
  * `date` is part of the key too -- a single action always writes the same date to every row
  * it splits into, but a bulk historical import can share one `createdAt` (the import batch
  * moment) across many genuinely separate real-world transactions on different dates; without
  * `date` in the key those would wrongly merge into one. */
-function mergeTransferEvents(events: StatementEvent[]): StatementEvent[] {
+function mergeSplitEvents(events: StatementEvent[]): StatementEvent[] {
   const merged = new Map<string, StatementEvent>();
   const order: StatementEvent[] = [];
   for (const e of events) {
@@ -49,15 +51,17 @@ export function vendorAccount(vendorId: string, d: LedgerData) {
     const label = incoming ? `Transfer from ${name(t.fromVendorId)}${order ? ` · paid ${order.invoiceRef || order.id}` : " · on account"}` : `${t.purpose === "PaySupplier" ? "Supplier payment to" : t.purpose === "Refund" ? "Refund to" : t.purpose === "Expense" ? "Expense — paid to" : "Transfer to"} ${name(t.toContactId)}`;
     transferEvents.push({ id: t.id, kind: "transfer", date: t.date ?? t.createdAt.slice(0, 10), createdAt: t.createdAt, label, currency: t.currency, credited: incoming ? t.amount : 0, debited: !incoming || t.receivingOrderId ? t.amount : 0, balance: 0, reversed: t.reversed, note: t.note, proofUrl: t.proofUrl, legacy: !!t.legacyId });
   }
-  events.push(...mergeTransferEvents(transferEvents));
+  events.push(...mergeSplitEvents(transferEvents));
+  const applicationEvents: StatementEvent[] = [];
   for (const a of d.applications) {
     // Include voided receipt history as well as applications of incoming transfers/credits.
     const source = balanceSource(a.movementId, d);
     const receipt = d.movements.find(m => m.id === a.movementId && m.payeeId === vendorId);
     if (source?.payeeId !== vendorId && !receipt) continue;
     const order = orders.find(o => o.id === a.orderId);
-    events.push({ id: a.id, kind: "application", date: a.date ?? a.createdAt.slice(0, 10), createdAt: a.createdAt, label: `Applied to order ${order?.invoiceRef || a.orderId}`, currency: source?.currency ?? receipt?.currency ?? order?.currency ?? "", credited: 0, debited: a.amount, balance: 0, reversed: !a.active || !!receipt?.reversed, note: a.reversedReason || "", proofUrl: receipt?.proofUrl ?? "", legacy: !!a.legacyId });
+    applicationEvents.push({ id: a.id, kind: "application", date: a.date ?? a.createdAt.slice(0, 10), createdAt: a.createdAt, label: `Applied to order ${order?.invoiceRef || a.orderId}`, currency: source?.currency ?? receipt?.currency ?? order?.currency ?? "", credited: 0, debited: a.amount, balance: 0, reversed: !a.active || !!receipt?.reversed, note: a.reversedReason || "", proofUrl: receipt?.proofUrl ?? "", legacy: !!a.legacyId });
   }
+  events.push(...mergeSplitEvents(applicationEvents));
   for (const c of (d.creditNotes ?? []).filter(c => c.vendorId === vendorId)) {
     events.push({ id: c.id, kind: "credit_note", date: c.date, createdAt: c.createdAt, label: c.orderId ? `Credit note · ${orders.find(o => o.id === c.orderId)?.invoiceRef || c.orderId}` : "Vendor credit on account", currency: c.currency, credited: c.amount, debited: 0, balance: 0, reversed: c.reversed, note: c.reason, proofUrl: "", legacy: false });
   }
