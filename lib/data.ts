@@ -89,6 +89,8 @@ const parseApplications = (rows: Row[]): Application[] =>
     active: bool(r.active),
     reversedReason: r.reversedReason,
     createdAt: r.createdAt,
+    vendorId: r.vendorId ?? "",
+    currency: r.currency ?? "",
   }));
 
 const parseTransfers = (rows: Row[]): Transfer[] =>

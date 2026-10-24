@@ -36,6 +36,9 @@ export const SHEETS = {
   // Spends part (or all) of a vendor receipt against an order.
   Applications: [
     "id", "movementId", "orderId", "amount", "active", "reversedReason", "createdAt", "date", "legacyId",
+    // Appended at the end, same reason as Transfers' rate/rateCurrency below: only set on an
+    // advance application (empty movementId), so existing rows stay valid with these blank.
+    "vendorId", "currency",
   ],
   // Spends part (or all) of a vendor's held balance on something other than "its own order":
   // another vendor, an external supplier, or a refund back out of the system.
@@ -126,6 +129,10 @@ export interface Application {
   id: string; movementId: string; orderId: string; amount: number;
   active: boolean; reversedReason: string; createdAt: string;
   date?: string; legacyId?: string;
+  // Set only on an "advance" application -- movementId is empty because no real receipt
+  // backs it (the vendor's held balance didn't cover the order). Normal applications derive
+  // vendor/currency from their movementId via balanceSource() and leave these blank.
+  vendorId?: string; currency?: string;
 }
 
 export interface Transfer {

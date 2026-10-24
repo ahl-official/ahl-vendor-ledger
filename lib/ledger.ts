@@ -214,7 +214,16 @@ export function vendorHeld(vendorId: string, currency: string, d: LedgerData): n
 
   const appliedOut = d.applications
     .filter((a) => a.active)
-    .filter((a) => { const s = balanceSource(a.movementId, d); return s?.payeeId === vendorId && s.currency === currency; })
+    .filter((a) => {
+      if (a.movementId) {
+        const s = balanceSource(a.movementId, d);
+        return s?.payeeId === vendorId && s.currency === currency;
+      }
+      // Advance application: paid toward an order with no backing receipt (the vendor's
+      // held balance didn't cover it) -- tracked directly by vendor/currency instead of a
+      // source, and included here so the shortfall shows up as a negative held balance.
+      return a.vendorId === vendorId && a.currency === currency;
+    })
     .reduce((s, a) => s + a.amount, 0);
 
   const transfersOut = d.transfers

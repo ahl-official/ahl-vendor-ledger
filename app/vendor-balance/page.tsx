@@ -139,8 +139,10 @@ function VendorBalanceContent() {
           const a = as[0];
           const totalAmount = as.reduce((s, x) => s + x.amount, 0);
           const movement = d.movements.find((m) => m.id === a.movementId);
-          const vId = movement?.payeeId ?? "";
-          const curr = movement?.currency ?? "RMB";
+          // An advance entry (see app/api/applications/route.ts) has no movementId to look up
+          // -- it carries vendorId/currency directly instead.
+          const vId = movement?.payeeId ?? a.vendorId ?? "";
+          const curr = movement?.currency ?? a.currency ?? "RMB";
           setVendorId(vId);
           setOriginalEditVendorId(vId);
           setCurrency(curr);
@@ -196,15 +198,21 @@ function VendorBalanceContent() {
     return Object.entries(vendor.held).filter(([, amt]) => Math.abs(amt) > 0.001);
   }, [vendor]);
 
-  // When vendor changes, auto-select their first held currency
+  // When vendor changes, auto-select their first held currency. If they hold nothing, fall
+  // back to their own pending orders' currency instead of leaving a stale default (e.g.
+  // "RMB") -- otherwise "Apply to Order" can't find orders that are really in USD just
+  // because nothing's held yet. Applying beyond what's held is allowed (see totalHeld/submit
+  // below): it's recorded as an advance and the vendor's balance goes negative.
   useEffect(() => {
-    if (vendor) {
-      const currs = Object.entries(vendor.held).filter(([, amt]) => Math.abs(amt) > 0.001);
-      if (currs.length > 0 && !currs.some(([c]) => c === currency)) {
-        setCurrency(currs[0][0]);
-      }
+    if (!vendor) return;
+    const heldCurrs = Object.entries(vendor.held).filter(([, amt]) => Math.abs(amt) > 0.001).map(([c]) => c);
+    if (heldCurrs.length > 0) {
+      if (!heldCurrs.includes(currency)) setCurrency(heldCurrs[0]);
+      return;
     }
-  }, [vendor, currency]);
+    const orderCurrs = [...new Set(orders.filter((o) => o.vendorId === vendorId && o.due > 0.01).map((o) => o.currency))];
+    if (orderCurrs.length > 0 && !orderCurrs.includes(currency)) setCurrency(orderCurrs[0]);
+  }, [vendor, vendorId, currency, orders]);
 
   const totalHeld =
     (vendor?.held[currency] ?? 0) +
@@ -267,6 +275,13 @@ function VendorBalanceContent() {
   const isTransferSplit = action === "Transfer" && toContactId;
   const effectiveApplied = paymentUse === "OrderOnly" ? String(convertedAmt) : appliedAmount;
 
+  // "Apply to Order" is capped by the order's own due, not by totalHeld -- it's allowed to
+  // exceed what's held (see submit below): the shortfall is recorded as an advance and the
+  // vendor's balance goes negative instead of blocking the payment outright.
+  const selectedApplyOrder = action === "apply" ? targetOrders.find((o) => o.id === orderId) : undefined;
+  const selectedApplyOrderDue = selectedApplyOrder ? selectedApplyOrder.due + (selectedApplyOrder.id === originalEditOrderId ? originalEditAmount : 0) : undefined;
+  const willGoNegative = action === "apply" && convertedAmt > totalHeld + 0.01;
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -274,7 +289,14 @@ function VendorBalanceContent() {
     if (!typedAmt || typedAmt <= 0) return setError("Amount must be greater than 0");
     if (convertingSpend && !(spendRateNum > 0)) return setError(`Enter the ${spendCurrency}→${currency} rate to convert`);
     const amt = convertedAmt;
-    if (amt - totalHeld > 0.01) {
+    if (action === "apply") {
+      if (!orderId) return setError("Choose an order");
+      // Beyond what's held is fine here -- it becomes an advance (see submit below); the
+      // order's own due is still the hard ceiling, same check the API makes server-side.
+      if (selectedApplyOrderDue != null && amt - selectedApplyOrderDue > 0.01) {
+        return setError(`Amount exceeds this order's due (${currency} ${selectedApplyOrderDue.toFixed(2)})`);
+      }
+    } else if (amt - totalHeld > 0.01) {
       return setError(`Vendor only holds ${currency} ${totalHeld.toFixed(2)} in total balance`);
     }
     if (action === "Expense" && !companyContactId) return setError("No Company contact found to record this against");
@@ -538,10 +560,11 @@ function VendorBalanceContent() {
             type="number"
             step="any"
             value={amount}
+            max={action === "apply" ? selectedApplyOrderDue : undefined}
             onChange={(e) => { setAmount(e.target.value); setConvertedAmtOverride(null); }}
-            placeholder="0.00"
+            placeholder={action === "apply" && selectedApplyOrderDue != null ? `Max ${selectedApplyOrderDue.toFixed(2)}` : "0.00"}
             required
-            disabled={!vendor || totalHeld <= 0}
+            disabled={!vendor || (action === "apply" ? !orderId : totalHeld <= 0)}
           />
           {convertingSpend && (
             <div style={{ marginTop: 6 }}>
@@ -639,6 +662,14 @@ function VendorBalanceContent() {
           </p>
         )}
 
+        {willGoNegative && (
+          <p className="error-text" style={{ fontSize: 13 }}>
+            This is more than {vendor?.name} currently holds — the rest ({currency}{" "}
+            {(convertedAmt - totalHeld).toFixed(2)}) is recorded as an advance and the vendor&apos;s
+            balance shows negative until more funding is received.
+          </p>
+        )}
+
         {action !== "apply" && (
           <>
             <ProofUpload label={action === "Expense" ? "Receipt (PDF or image, optional)" : "Proof of transaction (PDF or image, optional)"} url={proofUrl} onChange={setProofUrl} />
@@ -651,7 +682,7 @@ function VendorBalanceContent() {
 
         {error && <p className="error-text">{error}</p>}
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <button type="submit" disabled={saving || !vendor || totalHeld <= 0}>
+          <button type="submit" disabled={saving || !vendor || (action === "apply" ? !orderId : totalHeld <= 0)}>
             {saving ? "Saving..." : editId ? "Save correction" : "Save"}
           </button>
           {editId && (
