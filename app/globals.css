@@ -85,6 +85,7 @@ input[type=number]::-webkit-outer-spin-button {
 }
 input[type=number] {
   -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 input:hover, select:hover, textarea:hover { border-color: var(--muted); }

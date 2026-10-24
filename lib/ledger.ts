@@ -125,23 +125,50 @@ export interface BalanceSource {
 /** Source IDs remain the original movement/transfer/credit IDs, never synthetic cash. */
 export function balanceSource(id: string, d: LedgerData): BalanceSource | undefined {
   const m = d.movements.find(m => m.id === id && isReceipt(m));
-  if (m) return { ...m, kind: "Receipt" };
+  if (m) {
+    const target = d.contacts.find(c => c.id === m.payeeId)?.displayCurrency || "";
+    const rate = m.quotedRate ?? m.actualRate;
+    if (target && m.currency !== target && rate && rate > 0 && m.rateCurrency === target) {
+      return { id: m.id, payeeId: m.payeeId, currency: target, amount: Math.round(convertByRate(m.amount, rate, m.currency, target) * 100) / 100, date: m.date, createdAt: m.createdAt, kind: "Receipt" };
+    }
+    return { ...m, kind: "Receipt" };
+  }
   const t = d.transfers.find(t => t.id === id && !t.reversed && t.purpose === "Transfer" && !t.receivingOrderId);
-  if (t) return { id: t.id, payeeId: t.toContactId, currency: t.currency, amount: t.amount, date: t.date ?? t.createdAt.slice(0, 10), createdAt: t.createdAt, kind: "Transfer" };
+  if (t) {
+    const target = d.contacts.find(c => c.id === t.toContactId)?.displayCurrency || "";
+    if (target && t.currency !== target && t.rate && t.rate > 0 && t.rateCurrency === target) {
+      return { id: t.id, payeeId: t.toContactId, currency: target, amount: Math.round(convertByRate(t.amount, t.rate, t.currency, target) * 100) / 100, date: t.date ?? t.createdAt.slice(0, 10), createdAt: t.createdAt, kind: "Transfer" };
+    }
+    return { id: t.id, payeeId: t.toContactId, currency: t.currency, amount: t.amount, date: t.date ?? t.createdAt.slice(0, 10), createdAt: t.createdAt, kind: "Transfer" };
+  }
   const c = d.creditNotes?.find(c => c.id === id && !c.reversed);
   if (c) return { id: c.id, payeeId: c.vendorId, currency: c.currency, amount: c.amount, date: c.date, createdAt: c.createdAt, kind: "CreditNote" };
 }
 
 /** All spendable sources. Imported pooled transfers are reserved FIFO without inventing events. */
 export function vendorOpenReceipts(vendorId: string, d: LedgerData) {
+  const target = d.contacts.find(c => c.id === vendorId)?.displayCurrency || "";
   const sources = [...d.movements.map(x => x.id), ...d.transfers.map(x => x.id), ...(d.creditNotes ?? []).map(x => x.id)]
     .map(id => balanceSource(id, d)).filter((s): s is BalanceSource => !!s && s.payeeId === vendorId)
     .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || a.id.localeCompare(b.id));
   const pooled: Record<string, number> = {};
-  for (const t of d.transfers.filter(t => !t.reversed && t.fromVendorId === vendorId && !t.sourceMovementId)) pooled[t.currency] = (pooled[t.currency] ?? 0) + t.amount;
+  for (const t of d.transfers.filter(t => !t.reversed && t.fromVendorId === vendorId && !t.sourceMovementId)) {
+    let curr = t.currency;
+    let amt = t.amount;
+    if (target && t.currency !== target && t.rate && t.rate > 0 && t.rateCurrency === target) {
+      curr = target;
+      amt = Math.round(convertByRate(t.amount, t.rate, t.currency, target) * 100) / 100;
+    }
+    pooled[curr] = (pooled[curr] ?? 0) + amt;
+  }
   return sources.map(movement => {
     const direct = d.applications.filter(a => a.active && a.movementId === movement.id).reduce((s, a) => s + a.amount, 0)
-      + d.transfers.filter(t => !t.reversed && t.sourceMovementId === movement.id).reduce((s, t) => s + t.amount, 0);
+      + d.transfers.filter(t => !t.reversed && t.sourceMovementId === movement.id).map(t => {
+        if (target && t.currency !== target && t.rate && t.rate > 0 && t.rateCurrency === target) {
+          return Math.round(convertByRate(t.amount, t.rate, t.currency, target) * 100) / 100;
+        }
+        return t.amount;
+      }).reduce((s, a) => s + a, 0);
     const available = Math.max(0, movement.amount - direct);
     const reserved = Math.min(available, pooled[movement.currency] ?? 0);
     pooled[movement.currency] = Math.max(0, (pooled[movement.currency] ?? 0) - reserved);
@@ -150,9 +177,20 @@ export function vendorOpenReceipts(vendorId: string, d: LedgerData) {
 }
 
 export function vendorHeld(vendorId: string, currency: string, d: LedgerData): number {
+  const target = d.contacts.find(c => c.id === vendorId)?.displayCurrency || "";
+
   const receivedIn = d.movements
-    .filter((m) => isReceipt(m) && m.payeeId === vendorId && m.currency === currency)
-    .reduce((s, m) => s + m.amount, 0);
+    .filter((m) => isReceipt(m) && m.payeeId === vendorId)
+    .map((m) => {
+      const rate = m.quotedRate ?? m.actualRate;
+      if (target && m.currency !== target && rate && rate > 0 && m.rateCurrency === target) {
+        return { currency: target, amount: Math.round(convertByRate(m.amount, rate, m.currency, target) * 100) / 100 };
+      }
+      return { currency: m.currency, amount: m.amount };
+    })
+    .filter((r) => r.currency === currency)
+    .reduce((s, r) => s + r.amount, 0);
+
   // Only purpose "Transfer" (vendor-to-vendor) is a real incoming balance for the recipient.
   // A refund's toContactId is just where the money went, not a vendor gaining held funds —
   // counting it here would cancel out its own transfersOut below. A transfer sent straight to
@@ -160,19 +198,37 @@ export function vendorHeld(vendorId: string, currency: string, d: LedgerData): n
   // already counts it there, so it must NOT also inflate held balance here, or that amount
   // would be counted as both "paid" and "still available" at once.
   const transfersIn = d.transfers
-    .filter((t) => t.purpose === "Transfer" && t.toContactId === vendorId && !t.reversed && t.currency === currency && !t.receivingOrderId)
-    .reduce((s, t) => s + t.amount, 0);
+    .filter((t) => t.purpose === "Transfer" && t.toContactId === vendorId && !t.reversed && !t.receivingOrderId)
+    .map((t) => {
+      if (target && t.currency !== target && t.rate && t.rate > 0 && t.rateCurrency === target) {
+        return { currency: target, amount: Math.round(convertByRate(t.amount, t.rate, t.currency, target) * 100) / 100 };
+      }
+      return { currency: t.currency, amount: t.amount };
+    })
+    .filter((r) => r.currency === currency)
+    .reduce((s, r) => s + r.amount, 0);
+
   const creditNotesIn = (d.creditNotes ?? [])
     .filter((c) => c.vendorId === vendorId && !c.reversed && c.currency === currency)
     .reduce((s, c) => s + c.amount, 0);
+
   const appliedOut = d.applications
     .filter((a) => a.active)
     .filter((a) => { const s = balanceSource(a.movementId, d); return s?.payeeId === vendorId && s.currency === currency; })
     .reduce((s, a) => s + a.amount, 0);
+
   const transfersOut = d.transfers
-    .filter((t) => t.fromVendorId === vendorId && !t.reversed && t.currency === currency)
-    .reduce((s, t) => s + t.amount, 0);
-  return receivedIn + transfersIn + creditNotesIn - appliedOut - transfersOut;
+    .filter((t) => t.fromVendorId === vendorId && !t.reversed)
+    .map((t) => {
+      if (target && t.currency !== target && t.rate && t.rate > 0 && t.rateCurrency === target) {
+        return { currency: target, amount: Math.round(convertByRate(t.amount, t.rate, t.currency, target) * 100) / 100 };
+      }
+      return { currency: t.currency, amount: t.amount };
+    })
+    .filter((r) => r.currency === currency)
+    .reduce((s, r) => s + r.amount, 0);
+
+  return Math.round((receivedIn + transfersIn + creditNotesIn - appliedOut - transfersOut) * 100) / 100;
 }
 
 /** How much of a CompanyToAgent funding movement is still unlinked to any FX conversion. */

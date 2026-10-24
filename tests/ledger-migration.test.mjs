@@ -154,9 +154,9 @@ test('opting a vendor into a display currency converts only entries with a match
   assert.equal(noRate.credited, 500);
   assert.equal(wrongTarget.currency, 'RMB');
   assert.equal(wrongTarget.credited, 200);
-  // Display conversion never touches the real spendable balance.
-  assert.equal(vendorHeld('vendor', 'RMB', d), 8880);
-  assert.equal(vendorHeld('vendor', 'USD', d), 0);
+  // When opted into display currency, vendorHeld matches the converted spendable balance for matching entries.
+  assert.equal(vendorHeld('vendor', 'RMB', d), 700);
+  assert.equal(vendorHeld('vendor', 'USD', d), 1152.11);
 });
 
 test('a vendor-to-vendor transfer with a saved rate converts for display the same way', () => {
@@ -167,8 +167,9 @@ test('a vendor-to-vendor transfer with a saved rate converts for display the sam
   const event = vendorAccount('b', d).events[0];
   assert.equal(event.currency, 'USD');
   assert.equal(Math.round(event.credited * 100) / 100, 100); // 710 RMB / 7.1
-  // Real balance stays RMB -- this is a display conversion only.
-  assert.equal(vendorHeld('b', 'RMB', d), 710);
+  // Real held balance reflects the converted USD balance for vendor b.
+  assert.equal(vendorHeld('b', 'RMB', d), 0);
+  assert.equal(vendorHeld('b', 'USD', d), 100);
 });
 
 test('drawFifo draws oldest-first, rounds to cents, and throws when sources fall short', () => {
