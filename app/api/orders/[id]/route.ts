@@ -4,6 +4,42 @@ import { balanceSource, orderPaid, orderSummary } from "@/lib/ledger";
 import { appendRow, deleteRowsByField, newId, updateRow } from "@/lib/sheets";
 import { withErrors } from "@/lib/api";
 
+type Payment = {
+  id: string; kind: string; legacy: boolean; movementId: string; amount: number;
+  createdAt: string; date: string; currency: string; method: string; reference: string; payerName: string;
+  // When this apply/transfer action itself happened -- NOT the same as `date` above, which (for
+  // an Application) deliberately shows the underlying RECEIPT's date for display. Merging must
+  // group by when the apply/transfer action happened, or applications drawn from receipts dated
+  // months apart would wrongly end up in the same group just because they both applied to this
+  // order around the same moment.
+  actionDate: string;
+};
+
+/** One "Apply to Order" or vendor-to-vendor Transfer can write several rows FIFO-split across
+ *  a vendor's open receipts (see app/api/applications/route.ts and app/api/transfers/route.ts
+ *  drawFifo). Shown separately they look like unrelated part-payments; merge rows written by
+ *  the same action (same moment, same payer/currency) back into one line, keeping every
+ *  underlying id so unlinking affects the whole group -- same approach the Ledger page's
+ *  vendorAccount() uses (lib/accounts.ts mergeSplitEvents), applied here to this page's own
+ *  payment shape since it isn't built from vendorAccount's event list. */
+function mergePayments(payments: Payment[]): (Payment & { ids: string[] })[] {
+  const merged = new Map<string, Payment & { ids: string[] }>();
+  const order: (Payment & { ids: string[] })[] = [];
+  for (const p of payments) {
+    const key = `${p.kind}|${p.actionDate}|${p.createdAt}|${p.payerName}|${p.currency}`;
+    const existing = merged.get(key);
+    if (existing) {
+      existing.amount += p.amount;
+      existing.ids.push(p.id);
+    } else {
+      const copy = { ...p, ids: [p.id] };
+      merged.set(key, copy);
+      order.push(copy);
+    }
+  }
+  return order;
+}
+
 export const GET = withErrors(async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const d = await getAllData();
@@ -27,6 +63,7 @@ export const GET = withErrors(async (_req: Request, { params }: { params: Promis
         amount: a.amount,
         createdAt: a.createdAt,
         date: mov?.date ?? a.createdAt.slice(0, 10),
+        actionDate: a.date ?? a.createdAt.slice(0, 10),
         currency: mov?.currency ?? order.currency,
         method: mov?.method ?? "",
         reference: mov?.reference ?? "",
@@ -36,9 +73,10 @@ export const GET = withErrors(async (_req: Request, { params }: { params: Promis
 
   appliedPayments.push(...d.transfers.filter(t => !t.reversed && t.receivingOrderId === id).map(t => ({
     id: t.id, kind: "transfer", legacy: !!t.legacyId, movementId: t.sourceMovementId, amount: t.amount, createdAt: t.createdAt,
-    date: t.date ?? t.createdAt.slice(0, 10), currency: t.currency, method: "Vendor transfer", reference: t.legacyId || t.id,
+    date: t.date ?? t.createdAt.slice(0, 10), actionDate: t.date ?? t.createdAt.slice(0, 10), currency: t.currency, method: "Vendor transfer", reference: t.legacyId || t.id,
     payerName: d.contacts.find(c => c.id === t.fromVendorId)?.name || t.fromVendorId,
   })));
+  const mergedPayments = mergePayments(appliedPayments);
   const creditNotes = (d.creditNotes ?? [])
     .filter((c) => c.orderId === id && !c.reversed)
     .map((c) => ({
@@ -55,7 +93,7 @@ export const GET = withErrors(async (_req: Request, { params }: { params: Promis
     ...order,
     vendorName: vendor?.name ?? order.vendorId,
     items,
-    appliedPayments,
+    appliedPayments: mergedPayments,
     creditNotes,
     creditNotesTotal: summary.creditNotes,
     total: summary.total,
@@ -150,18 +188,10 @@ export const DELETE = withErrors(async (_req: Request, { params }: { params: Pro
     );
   }
 
-  const activeCreditNotes = (d.creditNotes ?? []).filter((c) => c.orderId === id && !c.reversed);
-  if (activeCreditNotes.length > 0) {
-    const cnTotal = activeCreditNotes.reduce((s, c) => s + c.amount, 0);
-    return NextResponse.json(
-      { error: `Cannot delete order ${order.invoiceRef || order.id} because it has ${activeCreditNotes.length} active credit note(s) totaling ${order.currency} ${cnTotal.toFixed(2)}. Delete credit notes first.` },
-      { status: 400 }
-    );
-  }
-
+  // Credit notes (active or reversed) are already ruled out by the guard above -- there's
+  // nothing left in Credit_Notes for this order to clean up here.
   await deleteRowsByField("Orders", "id", id);
   await deleteRowsByField("Order_Items", "orderId", id);
-  await deleteRowsByField("Credit_Notes", "orderId", id);
 
   return NextResponse.json({ success: true, id });
 });

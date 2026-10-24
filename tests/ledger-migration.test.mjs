@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { orderSummary, vendorHeld, vendorOpenReceipts, movementRemaining, agentPosition } from '../lib/ledger.ts';
+import { orderSummary, vendorHeld, vendorOpenReceipts, movementRemaining, agentPosition, drawFifo, fundingAutoConversion, isValidMoneyAmount } from '../lib/ledger.ts';
 import { vendorAccount } from '../lib/accounts.ts';
 
 const empty = () => ({ contacts: [], orders: [], orderItems: [], movements: [], applications: [], transfers: [], fxConversions: [], creditNotes: [], legacyRecords: [] });
@@ -169,4 +169,35 @@ test('a vendor-to-vendor transfer with a saved rate converts for display the sam
   assert.equal(Math.round(event.credited * 100) / 100, 100); // 710 RMB / 7.1
   // Real balance stays RMB -- this is a display conversion only.
   assert.equal(vendorHeld('b', 'RMB', d), 710);
+});
+
+test('drawFifo draws oldest-first, rounds to cents, and throws when sources fall short', () => {
+  const sources = [
+    { movement: { id: 'old' }, remaining: 30 },
+    { movement: { id: 'mid' }, remaining: 100.005 },
+    { movement: { id: 'new' }, remaining: 50 },
+  ];
+  const draws = drawFifo(sources, 70.01);
+  assert.deepEqual(draws.map(d => [d.source.movement.id, d.used]), [['old', 30], ['mid', 40.01]]);
+  assert.throws(() => drawFifo(sources, 1000), /did not cover/);
+  assert.deepEqual(drawFifo(sources, 0.001), []); // rounds down to nothing, draws nothing
+});
+
+test('fundingAutoConversion only applies to CompanyToAgent fundings with a real rate into a different currency', () => {
+  const base = { id: 'm', date: '2026-01-01', payerId: 'c', payeeId: 'a', amount: 1000, currency: 'INR', actualRate: null, quotedRate: null, agentFee: null, rateCurrency: '', paymentUse: '', method: '', reference: '', proofUrl: '', note: '', reversed: false, reversedReason: '', idempotencyKey: '', createdAt: '', createdBy: '' };
+  assert.equal(fundingAutoConversion({ ...base, type: 'AgentToVendor', quotedRate: 83, rateCurrency: 'USD' }), null); // wrong type
+  assert.equal(fundingAutoConversion({ ...base, type: 'CompanyToAgent', currency: 'USD', quotedRate: 83, rateCurrency: 'USD' }), null); // already that currency
+  assert.equal(fundingAutoConversion({ ...base, type: 'CompanyToAgent', rateCurrency: 'USD' }), null); // no rate saved
+  const conv = fundingAutoConversion({ ...base, type: 'CompanyToAgent', quotedRate: 83, rateCurrency: 'USD' });
+  assert.equal(conv.target, 'USD');
+  assert.equal(Math.round(conv.amount * 100) / 100, 12.05); // 1000 INR / 83
+});
+
+test('isValidMoneyAmount enforces positive, at-most-two-decimal amounts', () => {
+  assert.equal(isValidMoneyAmount(100), true);
+  assert.equal(isValidMoneyAmount(100.5), true);
+  assert.equal(isValidMoneyAmount(8187.1341), false); // real conversion math, not float noise -- still rejected
+  assert.equal(isValidMoneyAmount(0), false);
+  assert.equal(isValidMoneyAmount(-5), false);
+  assert.equal(isValidMoneyAmount(NaN), false);
 });

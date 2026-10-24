@@ -7,6 +7,7 @@ import { Loading } from "@/app/components/Loading";
 
 type AppliedPayment = {
   id: string;
+  ids?: string[];
   movementId: string;
   kind?: string; legacy?: boolean;
   amount: number;
@@ -123,9 +124,10 @@ function OrderDetailContent() {
   };
 
   const handleUnlinkPayment = async (payment: AppliedPayment) => {
+    const ids = payment.ids?.length ? payment.ids : [payment.id];
     if (
       !window.confirm(
-        `Are you sure you want to unlink payment of ${payment.currency} ${payment.amount.toFixed(2)}?\n\nThis will remove the payment from this order and return the funds to the vendor's held balance.`
+        `Are you sure you want to unlink payment of ${payment.currency} ${payment.amount.toFixed(2)}?\n\nThis will remove the payment${ids.length > 1 ? ` (${ids.length} underlying entries, drawn from several of the vendor's receipts)` : ""} from this order and return the funds to the vendor's held balance.`
       )
     ) {
       return;
@@ -134,14 +136,16 @@ function OrderDetailContent() {
     setUnlinkingId(payment.id);
     setActionError("");
     try {
-      const res = await fetch(`/api/${payment.kind === "transfer" ? "transfers" : "applications"}/${payment.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "Unlinked from order" }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error ?? "Failed to unlink payment");
+      // Sequential, not Promise.all: concurrent writes to the same sheet tab can race
+      // and silently drop one (see docs/DECISIONS.md, 2026-10-17 incident).
+      for (const id of ids) {
+        const res = await fetch(`/api/${payment.kind === "transfer" ? "transfers" : "applications"}/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "Unlinked from order" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error ?? "Failed to unlink payment");
       }
       loadOrder();
     } catch (err: unknown) {
@@ -170,13 +174,16 @@ function OrderDetailContent() {
       // Sequential, not Promise.all: concurrent writes to the same sheet tab can race
       // and silently drop one (see docs/DECISIONS.md, 2026-10-17 incident).
       for (const payment of payments) {
-        const res = await fetch(`/api/${payment.kind === "transfer" ? "transfers" : "applications"}/${payment.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reason: "Unlinked from order (bulk unlink all)" }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error ?? "Failed to unlink one of the payments");
+        const ids = payment.ids?.length ? payment.ids : [payment.id];
+        for (const id of ids) {
+          const res = await fetch(`/api/${payment.kind === "transfer" ? "transfers" : "applications"}/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reason: "Unlinked from order (bulk unlink all)" }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error ?? "Failed to unlink one of the payments");
+        }
       }
       loadOrder();
     } catch (err: unknown) {

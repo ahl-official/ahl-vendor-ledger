@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Application, Contact, CreditNote, MoneyMovement, Transfer } from "@/lib/schema";
 import { fetchJson } from "@/lib/fetchJson";
@@ -58,6 +58,10 @@ function VendorBalanceContent() {
   const [spendCurrency, setSpendCurrency] = useState("");
   const [spendRate, setSpendRate] = useState("");
   const [convertedAmtOverride, setConvertedAmtOverride] = useState<string | null>(null);
+  // While the edit-load effect is restoring a "Spend in X" entry's original currency/rate, the
+  // auto-reset effect below (which normally snaps spendCurrency back to the real currency
+  // whenever vendor/currency/action change) must not immediately undo that restoration.
+  const restoringEdit = useRef(false);
 
   // Clicking Edit on another entry navigates to a new editId on the same page without a full
   // reload -- without this, a leftover "Saved" screen from the last save stays showing instead
@@ -83,6 +87,7 @@ function VendorBalanceContent() {
 
   useEffect(() => {
     if (!editId) return;
+    restoringEdit.current = true;
     const ids = editId.split(",").filter(Boolean);
     type LedgerFull = { movements: MoneyMovement[]; applications: Application[]; transfers: Transfer[]; creditNotes: CreditNote[] };
     fetchJson<LedgerFull>("/api/ledger")
@@ -102,7 +107,18 @@ function VendorBalanceContent() {
           setOriginalEditCurrency(t.currency);
           setAction(t.purpose === "PaySupplier" ? "PaySupplier" : t.purpose === "Expense" ? "Expense" : "Transfer");
           setToContactId(t.toContactId);
-          setAmount(String(totalAmount));
+          // If this entry was originally typed in a different currency (t.rate/t.rateCurrency,
+          // saved by the "Spend in" box), restore that instead of just showing the real total --
+          // same rate, converted back from the real total into what was actually typed.
+          if (t.rate && t.rateCurrency && t.rateCurrency !== t.currency) {
+            setSpendCurrency(t.rateCurrency);
+            setSpendRate(String(t.rate));
+            const originalTyped = convertByRate(totalAmount, t.rate, t.currency, t.rateCurrency);
+            setAmount(String(Math.round(originalTyped * 100) / 100));
+          } else {
+            setSpendCurrency(t.currency);
+            setAmount(String(totalAmount));
+          }
           setOriginalEditAmount(totalAmount);
           setDate(t.date ?? t.createdAt.slice(0, 10));
           setNote(t.note);
@@ -147,13 +163,18 @@ function VendorBalanceContent() {
 
   // Spending in a different currency than what's held is only offered outside "apply" --
   // an order's due amount is fixed in its own currency, so applying to it can't convert.
+  // Skipped while the edit-load effect is restoring a "Spend in X" entry's original currency,
+  // or this would immediately snap it back to the real currency before the user sees it.
   useEffect(() => {
+    if (restoringEdit.current) return;
     setSpendCurrency(currency);
   }, [currency, vendorId, action]);
 
   // Reuse a rate already entered when money was received into this vendor's balance,
   // instead of asking for it again, when switching to spend in a different currency.
+  // Same restoration guard as above -- the edit-load effect sets the real original rate itself.
   useEffect(() => {
+    if (restoringEdit.current) return;
     setConvertedAmtOverride(null);
     if (spendCurrency === currency) return setSpendRate("");
     const withRate = movements
@@ -161,6 +182,13 @@ function VendorBalanceContent() {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
     setSpendRate(withRate ? String(withRate.quotedRate ?? withRate.actualRate) : "");
   }, [spendCurrency, currency, vendorId, movements]);
+
+  // Done restoring (or there was nothing to restore) -- let the two effects above resume their
+  // normal behavior for any further changes the user makes. Declared after them so it clears
+  // the guard only once they've both had a chance to run (skipped) for this same render.
+  useEffect(() => {
+    restoringEdit.current = false;
+  }, [editLoaded]);
 
   const vendor = vendors.find((v) => v.id === vendorId);
   const heldCurrencies = useMemo(() => {

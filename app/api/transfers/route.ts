@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAllData } from "@/lib/data";
-import { orderSummary, vendorHeld, vendorOpenReceipts } from "@/lib/ledger";
+import { drawFifo, INVALID_AMOUNT_ERROR, isValidMoneyAmount, orderSummary, vendorHeld, vendorOpenReceipts } from "@/lib/ledger";
 import { appendRowsAtomic, newId } from "@/lib/sheets";
 import { withErrors } from "@/lib/api";
 
@@ -9,11 +9,14 @@ export const POST = withErrors(async (req: Request) => {
   const amount = Number(body.amount);
   const purpose = String(body.purpose);
   const d = await getAllData();
-  const from = d.contacts.find(c => c.id === body.fromVendorId && c.active && c.roles.includes("Vendor"));
+  // The source vendor is NOT required to be active -- deleting a contact (see app/api/contacts/[id]/route.ts)
+  // must still let their existing held balance be spent down, not trap it. The recipient IS
+  // required to be active: you shouldn't be able to send new money to a deleted contact.
+  const from = d.contacts.find(c => c.id === body.fromVendorId && c.roles.includes("Vendor"));
   const to = d.contacts.find(c => c.id === body.toContactId && c.active);
   if (!from || !["Transfer", "PaySupplier", "Refund", "Expense"].includes(purpose)) return NextResponse.json({ error: "Choose a valid source vendor and purpose" }, { status: 400 });
   if (!to || to.id === from.id || (purpose === "Transfer" && !to.roles.includes("Vendor")) || (purpose === "PaySupplier" && !to.roles.includes("Supplier")) || (purpose === "Refund" && !to.roles.includes("Company"))) return NextResponse.json({ error: "Choose a valid recipient for this type of payment" }, { status: 400 });
-  if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.001) return NextResponse.json({ error: "Enter a positive amount with at most two decimals" }, { status: 400 });
+  if (!isValidMoneyAmount(amount)) return NextResponse.json({ error: INVALID_AMOUNT_ERROR }, { status: 400 });
   const allSources = vendorOpenReceipts(from.id, d);
   const currency = String(body.currency || allSources.find(r => r.movement.id === body.sourceMovementId)?.movement.currency || "RMB");
   const paymentUse = String(body.paymentUse || "");
@@ -29,20 +32,18 @@ export const POST = withErrors(async (req: Request) => {
   const sources = allSources.filter(r => r.movement.currency === currency && (!body.sourceMovementId || r.movement.id === body.sourceMovementId));
   if (amount - vendorHeld(from.id, currency, d) > 0.001 || amount - sources.reduce((s, r) => s + r.remaining, 0) > 0.001) return NextResponse.json({ error: "Available funds in this vendor/currency/source cannot cover the whole payment" }, { status: 400 });
   const createdAt = new Date().toISOString();
-  let needed = amount, appliedNeeded = applied;
+  const draws = drawFifo(sources, amount);
+  let appliedNeeded = applied;
   const records = [];
-  for (const s of sources) {
-    const used = Math.round(Math.min(needed, s.remaining) * 100) / 100;
-    if (used <= 0) break;
+  for (const { source, used } of draws) {
     const onOrder = Math.round(Math.min(used, appliedNeeded) * 100) / 100;
-    const base = { fromVendorId: from.id, sourceMovementId: s.movement.id, toContactId: to.id, purpose, currency, proofUrl: String(body.proofUrl || ""), note: String(body.note || ""), reversed: false, reversedReason: "", createdAt, date: String(body.date || createdAt.slice(0, 10)), rate: body.rate ? Number(body.rate) : null, rateCurrency: String(body.rateCurrency || "") };
+    const base = { fromVendorId: from.id, sourceMovementId: source.movement.id, toContactId: to.id, purpose, currency, proofUrl: String(body.proofUrl || ""), note: String(body.note || ""), reversed: false, reversedReason: "", createdAt, date: String(body.date || createdAt.slice(0, 10)), rate: body.rate ? Number(body.rate) : null, rateCurrency: String(body.rateCurrency || "") };
     if (onOrder > 0) records.push({ id: newId("TRF"), ...base, amount: onOrder, receivingOrderId: orderId });
     const held = Math.round((used - onOrder) * 100) / 100;
     if (held > 0) records.push({ id: newId("TRF"), ...base, amount: held, receivingOrderId: "" });
-    needed = Math.round((needed - used) * 100) / 100;
     appliedNeeded = Math.round((appliedNeeded - onOrder) * 100) / 100;
   }
-  if (needed > 0.001 || appliedNeeded > 0.001) throw Error("Balance sources did not cover the full payment");
+  if (appliedNeeded > 0.001) throw Error("Balance sources did not cover the full payment");
   await appendRowsAtomic("Transfers", records);
   return NextResponse.json({ id: records[0].id, ids: records.map(r => r.id) });
 });

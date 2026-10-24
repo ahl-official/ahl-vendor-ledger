@@ -443,7 +443,7 @@ export default function LedgerPage() {
                   <th>Credited</th>
                   <th>Debited</th>
                   <th>Total Balance</th>
-                  <th>≈ {estTarget}</th>
+                  {!selected.displayCurrency && <th>≈ {estTarget}</th>}
                   <th>Note</th>
                   <th style={{ textAlign: "right" }}>Actions</th>
                 </tr>
@@ -489,11 +489,13 @@ export default function LedgerPage() {
                         "—"
                       )}
                     </td>
-                    <td className="muted">
-                      {e.runningBalance != null && estRateNum > 0
-                        ? `${estTarget} ${(e.currency === estTarget ? e.runningBalance : convertByRate(e.runningBalance, estRateNum, e.currency, estTarget)).toFixed(2)}`
-                        : "—"}
-                    </td>
+                    {!selected.displayCurrency && (
+                      <td className="muted">
+                        {e.runningBalance != null && estRateNum > 0
+                          ? `${estTarget} ${(e.currency === estTarget ? e.runningBalance : convertByRate(e.runningBalance, estRateNum, e.currency, estTarget)).toFixed(2)}`
+                          : "—"}
+                      </td>
+                    )}
                     <td className="muted"><LedgerNote text={e.note} proofUrl={proofById.get(e.id)} /></td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>

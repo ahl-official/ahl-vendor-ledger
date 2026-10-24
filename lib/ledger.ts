@@ -40,6 +40,35 @@ export function deriveRateFromConverted(amount: number, converted: number, from:
   return rateDividesFromSource(from, to) ? amount / converted : converted / amount;
 }
 
+/** Real money only ever has cents. Shared by every route that accepts a typed amount, so the
+ *  rule (and its 0.001 float-safety margin) is defined once instead of copy-pasted per route. */
+export function isValidMoneyAmount(amount: number): boolean {
+  return Number.isFinite(amount) && amount > 0 && Math.abs(amount * 100 - Math.round(amount * 100)) <= 0.001;
+}
+export const INVALID_AMOUNT_ERROR = "Enter a positive amount with at most two decimals";
+
+/** Walks `sources` (already filtered/sorted FIFO by the caller) drawing up to `amount`,
+ *  rounding each step to cents so split amounts never drift. Returns one entry per source
+ *  actually drawn from. Shared by Applications and Transfers (see their route.ts), which both
+ *  FIFO-split a spend across a vendor's open receipts the same way -- the only difference is
+ *  what each does with a draw afterward (one row for Applications; possibly two, split across
+ *  order/on-account, for Transfers). Throws if the sources can't cover the full amount --
+ *  callers are expected to have already checked that against vendorHeld before calling this. */
+export function drawFifo<T extends { movement: { id: string }; remaining: number }>(
+  sources: T[], amount: number
+): { source: T; used: number }[] {
+  let needed = Math.round(amount * 100) / 100;
+  const draws: { source: T; used: number }[] = [];
+  for (const source of sources) {
+    const used = Math.round(Math.min(needed, source.remaining) * 100) / 100;
+    if (used <= 0) break;
+    draws.push({ source, used });
+    needed = Math.round((needed - used) * 100) / 100;
+  }
+  if (needed > 0.001) throw new Error("Balance sources did not cover the full amount");
+  return draws;
+}
+
 export function orderTotal(order: Order, items: OrderItem[]): number {
   const lines = items.filter((i) => i.orderId === order.id);
   if (!lines.length && order.legacyTotal != null) return order.legacyTotal;
@@ -183,6 +212,20 @@ export function agentOpenSpends(agentId: string, d: LedgerData) {
     .filter((r) => r.remaining > 0.001);
 }
 
+/** Whether and how a CompanyToAgent funding movement should be auto-converted using its own
+ *  saved rate (quotedRate/actualRate, into rateCurrency), when not explicitly linked via an FX
+ *  conversion -- null if it's not that type, isn't actually converting (same currency), or has
+ *  no usable rate. Shared by agentPosition and agentStatement (lib/agent-statement.ts), which
+ *  both apply this exact rule -- one of them used to duplicate it independently. */
+export function fundingAutoConversion(m: MoneyMovement): { target: string; rate: number; amount: number } | null {
+  if (m.type !== "CompanyToAgent") return null;
+  const target = m.rateCurrency || "RMB";
+  if (m.currency === target) return null;
+  const rate = m.quotedRate ?? m.actualRate;
+  if (!rate || rate <= 0) return null;
+  return { target, rate, amount: convertByRate(m.amount, rate, m.currency, target) };
+}
+
 /** Per-currency running position for an agent: positive = agent still holds company funding,
  *  negative = agent spent/returned more than funded, i.e. company owes the agent. An FX
  *  conversion explicitly ties a funding to a spend across currencies: it consumes the
@@ -214,14 +257,11 @@ export function agentPosition(agentId: string, d: LedgerData): Record<string, nu
   // If a funding movement has a quoted or actual rate and no explicit FX conversion, convert it
   // into whatever currency that rate was recorded for (rateCurrency; defaults to RMB).
   for (const m of d.movements) {
-    if (m.reversed) continue;
-    const target = m.rateCurrency || "RMB";
-    if (m.type === "CompanyToAgent" && m.payeeId === agentId && m.currency !== target && !convertedFundings.has(m.id)) {
-      const rate = m.quotedRate ?? m.actualRate;
-      if (rate && rate > 0) {
-        add(m.currency, -m.amount);
-        add(target, convertByRate(m.amount, rate, m.currency, target));
-      }
+    if (m.reversed || m.payeeId !== agentId || convertedFundings.has(m.id)) continue;
+    const conv = fundingAutoConversion(m);
+    if (conv) {
+      add(m.currency, -m.amount);
+      add(conv.target, conv.amount);
     }
   }
   return byCurrency;

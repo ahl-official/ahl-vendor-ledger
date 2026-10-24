@@ -302,14 +302,16 @@ export default function OrdersPage() {
                       type="button"
                       className="icon-btn delete-btn"
                       title={
-                        o.paid > 0
+                        o.legacyId
+                          ? "Cannot delete an imported/historical order"
+                          : o.paid > 0
                           ? "Cannot delete order with applied payments"
                           : (o.creditNotes ?? 0) > 0
                           ? "Cannot delete order with active credit notes"
                           : "Delete order"
                       }
                       aria-label={`Delete order ${o.invoiceRef || o.id}`}
-                      disabled={deletingId === o.id || o.paid > 0 || (o.creditNotes ?? 0) > 0}
+                      disabled={deletingId === o.id || !!o.legacyId || o.paid > 0 || (o.creditNotes ?? 0) > 0}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDelete(o);

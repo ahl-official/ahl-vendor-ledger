@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAllData } from "@/lib/data";
-import { orderSummary } from "@/lib/ledger";
+import { INVALID_AMOUNT_ERROR, isValidMoneyAmount, orderSummary } from "@/lib/ledger";
 import { MOVEMENT_TYPES, PAYMENT_USES, type MovementType, type PaymentUse } from "@/lib/schema";
 import { appendRow, newId } from "@/lib/sheets";
 import { registerOptionIfNew } from "@/lib/options";
@@ -17,7 +17,7 @@ export const POST = withErrors(async (req: Request) => {
   const amount = Number(body.amount);
   if (!MOVEMENT_TYPES.includes(type as typeof MOVEMENT_TYPES[number]) && !(type === "LegacyCompanyToVendor" && body.editId)) return NextResponse.json({ error: "Movement type is required" }, { status: 400 });
   if (!body.payerId || !body.payeeId) return NextResponse.json({ error: "Payer and payee are required" }, { status: 400 });
-  if (!Number.isFinite(amount) || amount <= 0) return NextResponse.json({ error: "Amount must be greater than 0" }, { status: 400 });
+  if (!isValidMoneyAmount(amount)) return NextResponse.json({ error: INVALID_AMOUNT_ERROR }, { status: 400 });
 
   const d = await getAllData();
   const payer = d.contacts.find(c => c.id === body.payerId && c.active);
