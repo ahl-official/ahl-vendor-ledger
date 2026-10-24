@@ -328,20 +328,26 @@ function OrderDetailContent() {
 
       {order.reviewNote && <p className="badge hold" style={{ whiteSpace: "pre-wrap" }}>{order.reviewNote}</p>}
       {!order.items.length && <p className="muted">Historical summary: original item breakdown is not available. The recorded total is preserved; quantities have not been invented.</p>}
-      {order.due > 0.01 && held > 0.01 && !hideSuggest && (
-        <div className="card" style={{ background: "var(--hold-bg)", borderColor: "var(--hold-border)", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <span>
-            {order.vendorName} holds <strong>{order.currency} {held.toFixed(2)}</strong>. Apply{" "}
-            <strong>{order.currency} {Math.min(held, order.due).toFixed(2)}</strong> to this order?
-          </span>
-          <span style={{ display: "flex", gap: 8 }}>
-            <button type="button" disabled={applying} onClick={() => handleApplyHeld(Math.min(held, order.due))}>
-              {applying ? "Applying..." : "Apply balance"}
-            </button>
-            <button type="button" className="secondary" onClick={() => setHideSuggest(true)}>Skip</button>
-          </span>
-        </div>
-      )}
+      {order.due > 0.01 && !hideSuggest && (() => {
+        const covers = held >= order.due - 0.01;
+        return (
+          <div className="card" style={{ background: covers ? "var(--hold-bg)" : "var(--err-bg)", borderColor: covers ? "var(--hold-border)" : "var(--err-border)", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span>
+              {order.vendorName} holds <strong>{order.currency} {held.toFixed(2)}</strong>. Apply the{" "}
+              <strong>{order.currency} {order.due.toFixed(2)}</strong> due to this order?
+              {!covers && (
+                <> {order.currency} {(order.due - Math.max(held, 0)).toFixed(2)} isn&apos;t held yet — it will be recorded as an advance, and the vendor&apos;s balance will go negative until more funding is received.</>
+              )}
+            </span>
+            <span style={{ display: "flex", gap: 8 }}>
+              <button type="button" disabled={applying} onClick={() => handleApplyHeld(order.due)}>
+                {applying ? "Applying..." : "Apply balance"}
+              </button>
+              <button type="button" className="secondary" onClick={() => setHideSuggest(true)}>Skip</button>
+            </span>
+          </div>
+        );
+      })()}
 
       {actionError && (
         <div className="card" style={{ background: "var(--err-bg)", borderColor: "var(--err-border)", marginBottom: 16 }}>

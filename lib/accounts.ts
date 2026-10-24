@@ -87,15 +87,16 @@ export function vendorAccount(vendorId: string, d: LedgerData) {
   const applicationEvents: StatementEvent[] = [];
   for (const a of d.applications) {
     // Include voided receipt history as well as applications of incoming transfers/credits.
+    // Legacy rows trace back to a specific movementId; current ones (see
+    // app/api/applications/route.ts) carry vendorId/currency directly instead -- either way
+    // works here, and a shortfall beyond what's held just shows up as a negative balance,
+    // not a different kind of row.
     const source = a.movementId ? balanceSource(a.movementId, d) : undefined;
     const receipt = a.movementId ? d.movements.find(m => m.id === a.movementId && m.payeeId === vendorId) : undefined;
-    // An advance application has no movementId -- nothing backs it, it's paid against the
-    // order before the vendor's held balance covers it (see app/api/applications/route.ts).
-    const isAdvance = !a.movementId && a.vendorId === vendorId;
-    if (!isAdvance && source?.payeeId !== vendorId && !receipt) continue;
+    const direct = !a.movementId && a.vendorId === vendorId;
+    if (!direct && source?.payeeId !== vendorId && !receipt) continue;
     const order = orders.find(o => o.id === a.orderId);
-    const label = `Applied to order ${order?.invoiceRef || a.orderId}${isAdvance ? " (advance — not yet funded)" : ""}`;
-    applicationEvents.push({ id: a.id, kind: "application", date: a.date ?? a.createdAt.slice(0, 10), createdAt: a.createdAt, label, currency: source?.currency ?? receipt?.currency ?? a.currency ?? order?.currency ?? "", credited: 0, debited: a.amount, balance: 0, reversed: !a.active || !!receipt?.reversed, note: a.reversedReason || "", proofUrl: receipt?.proofUrl ?? "", legacy: !!a.legacyId });
+    applicationEvents.push({ id: a.id, kind: "application", date: a.date ?? a.createdAt.slice(0, 10), createdAt: a.createdAt, label: `Applied to order ${order?.invoiceRef || a.orderId}`, currency: source?.currency ?? receipt?.currency ?? a.currency ?? order?.currency ?? "", credited: 0, debited: a.amount, balance: 0, reversed: !a.active || !!receipt?.reversed, note: a.reversedReason || "", proofUrl: receipt?.proofUrl ?? "", legacy: !!a.legacyId });
   }
   events.push(...mergeSplitEvents(applicationEvents));
   for (const c of (d.creditNotes ?? []).filter(c => c.vendorId === vendorId)) {
