@@ -199,6 +199,15 @@ export default function LedgerPage() {
 
   const vendorOrders = roleFilter === "Vendor" ? orders.filter((o) => o.vendorId === selectedId) : [];
   const vendorHeld = roleFilter === "Vendor" ? vendors.find((v) => v.id === selectedId)?.held : undefined;
+  // How much of what's held is already spoken for by this vendor's own open orders (and any
+  // open expenses): held - due - expenses, per currency. Can go negative -- that means the
+  // open orders cost more than what's currently held, i.e. the vendor needs more funding
+  // before everything due can be paid. lib/accounts.ts already computes this; it just wasn't
+  // surfaced here before.
+  const vendorBalances = useMemo(() => {
+    if (roleFilter !== "Vendor" || !selectedId) return [];
+    return vendorAccount(selectedId, { contacts, orders, orderItems: [], movements, applications, transfers, fxConversions, creditNotes }).balances;
+  }, [roleFilter, selectedId, contacts, orders, movements, applications, transfers, fxConversions, creditNotes]);
   // Reuse a rate already entered when the money was recorded, instead of asking for it again --
   // picks the most recent movement to this vendor that was itself given a conversion rate.
   useEffect(() => {
@@ -377,6 +386,21 @@ export default function LedgerPage() {
                   <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
                     Quick estimate only — type today&apos;s rate to see the value in another currency. Nothing is saved.
                   </p>
+                )}
+                {vendorBalances.filter((b) => Math.abs(b.held) > 0.01 || Math.abs(b.due) > 0.01 || Math.abs(b.expenses) > 0.01).length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <p className="field-label">After this vendor&apos;s open orders</p>
+                    {vendorBalances
+                      .filter((b) => Math.abs(b.held) > 0.01 || Math.abs(b.due) > 0.01 || Math.abs(b.expenses) > 0.01)
+                      .map((b) => (
+                        <span key={b.currency} className={`badge ${b.afterCommitments < -0.01 ? "err" : "hold"}`} style={{ marginRight: 6 }}>
+                          {b.currency} {b.afterCommitments.toFixed(2)}{b.afterCommitments < -0.01 ? " (vendor owes)" : ""}
+                        </span>
+                      ))}
+                    <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                      Held minus this vendor&apos;s total order due{vendorBalances.some((b) => Math.abs(b.expenses) > 0.01) ? " and open expenses" : ""}. Negative means the open orders (and expenses) cost more than what&apos;s currently held — the vendor would owe that much back, or needs more funding before everything due can be paid.
+                    </p>
+                  </div>
                 )}
               </>
             )}
