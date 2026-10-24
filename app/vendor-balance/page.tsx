@@ -58,6 +58,8 @@ function VendorBalanceContent() {
   const [spendCurrency, setSpendCurrency] = useState("");
   const [spendRate, setSpendRate] = useState("");
   const [convertedAmtOverride, setConvertedAmtOverride] = useState<string | null>(null);
+  const [receiveCurrency, setReceiveCurrency] = useState("");
+  const [receiveRate, setReceiveRate] = useState("");
   // While the edit-load effect is restoring a "Spend in X" entry's original currency/rate, the
   // auto-reset effect below (which normally snaps spendCurrency back to the real currency
   // whenever vendor/currency/action change) must not immediately undo that restoration.
@@ -123,6 +125,15 @@ function VendorBalanceContent() {
           setDate(t.date ?? t.createdAt.slice(0, 10));
           setNote(t.note);
           setProofUrl(t.proofUrl);
+          // Restore a receiving-currency conversion (see app/api/transfers/route.ts) -- these
+          // are always single, un-split records, so t === the whole entry here.
+          if (t.toCurrency && t.toAmount != null && t.toCurrency !== t.currency) {
+            setReceiveCurrency(t.toCurrency);
+            setReceiveRate(String(deriveRateFromConverted(t.amount, t.toAmount, t.currency, t.toCurrency)));
+          } else {
+            setReceiveCurrency("");
+            setReceiveRate("");
+          }
           if (t.purpose === "Transfer") {
             if (t.receivingOrderId) {
               setPaymentUse("OrderOnly");
@@ -214,6 +225,16 @@ function VendorBalanceContent() {
     if (orderCurrs.length > 0 && !orderCurrs.includes(currency)) setCurrency(orderCurrs[0]);
   }, [vendor, vendorId, currency, orders]);
 
+  // Clear any receiving-currency conversion once it's no longer offered (action changed away
+  // from Transfer, recipient cleared, or the user chose to pay directly into an order) so a
+  // stale value can't sneak into a later submit.
+  useEffect(() => {
+    if (!(action === "Transfer" && !!toContactId && paymentUse !== "OrderOnly" && paymentUse !== "OrderPlusOnAccount")) {
+      setReceiveCurrency("");
+      setReceiveRate("");
+    }
+  }, [action, toContactId, paymentUse]);
+
   const totalHeld =
     (vendor?.held[currency] ?? 0) +
     (editId && vendorId === originalEditVendorId && currency === originalEditCurrency ? originalEditAmount : 0);
@@ -280,7 +301,16 @@ function VendorBalanceContent() {
   // vendor's balance goes negative instead of blocking the payment outright.
   const selectedApplyOrder = action === "apply" ? targetOrders.find((o) => o.id === orderId) : undefined;
   const selectedApplyOrderDue = selectedApplyOrder ? selectedApplyOrder.due + (selectedApplyOrder.id === originalEditOrderId ? originalEditAmount : 0) : undefined;
-  const willGoNegative = action === "apply" && convertedAmt > totalHeld + 0.01;
+  const willGoNegative = convertedAmt > totalHeld + 0.01;
+
+  // A vendor-to-vendor transfer can credit the receiver in a different currency than the
+  // sender spends (e.g. sender spends USD, a vendor normally paid in RMB is credited RMB).
+  // Not offered while paying directly into one of the receiver's orders -- that order's due
+  // is fixed in its own currency (see app/api/transfers/route.ts).
+  const canConvertReceiver = action === "Transfer" && !!toContactId && paymentUse !== "OrderOnly" && paymentUse !== "OrderPlusOnAccount";
+  const receiveRateNum = Number(receiveRate);
+  const convertingReceiver = canConvertReceiver && !!receiveCurrency && receiveCurrency !== currency;
+  const toAmount = convertingReceiver && receiveRateNum > 0 ? Math.round(convertByRate(convertedAmt, receiveRateNum, currency, receiveCurrency) * 100) / 100 : null;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -296,12 +326,18 @@ function VendorBalanceContent() {
       if (selectedApplyOrderDue != null && amt - selectedApplyOrderDue > 0.01) {
         return setError(`Amount exceeds this order's due (${currency} ${selectedApplyOrderDue.toFixed(2)})`);
       }
-    } else if (amt - totalHeld > 0.01) {
-      return setError(`Vendor only holds ${currency} ${totalHeld.toFixed(2)} in total balance`);
+    } else if (!toContactId && action !== "Expense") {
+      return setError(action === "Transfer" ? "Choose a receiving vendor" : "Choose a supplier");
     }
+    // Beyond what's held is fine here too, for the same reason as Apply to Order above --
+    // it becomes an advance, and the vendor's balance goes negative instead of blocking a
+    // payment that's already been decided on (see app/api/transfers/route.ts).
     if (action === "Expense" && !companyContactId) return setError("No Company contact found to record this against");
     if (isTransferSplit && !paymentUse) {
       return setError("Choose Order only / On-account only / Order + on-account");
+    }
+    if (convertingReceiver && !(receiveRateNum > 0)) {
+      return setError(`Enter the ${currency}→${receiveCurrency} rate for what the receiving vendor is credited`);
     }
 
     setSaving(true);
@@ -350,6 +386,8 @@ function VendorBalanceContent() {
                 proofUrl,
                 rate: convertingSpend ? spendRateNum : undefined,
                 rateCurrency: convertingSpend ? spendCurrency : undefined,
+                toCurrency: convertingReceiver ? receiveCurrency : undefined,
+                toAmount: convertingReceiver ? toAmount : undefined,
               }),
             });
       setSaving(false);
@@ -507,6 +545,30 @@ function VendorBalanceContent() {
           </div>
         )}
 
+        {canConvertReceiver && (
+          <div className="grid" style={{ gridTemplateColumns: convertingReceiver ? "1fr 1fr" : "1fr" }}>
+            <div>
+              <label>Receiving vendor gets this in</label>
+              <select value={receiveCurrency || currency} onChange={(e) => setReceiveCurrency(e.target.value === currency ? "" : e.target.value)}>
+                <option value={currency}>{currency} (same as sent)</option>
+                {["USD", "RMB", "INR"].filter((c) => c !== currency).map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            {convertingReceiver && (
+              <div>
+                <label>Rate ({currency}→{receiveCurrency})</label>
+                <input
+                  type="number" step="any" value={receiveRate}
+                  onChange={(e) => setReceiveRate(e.target.value)}
+                  placeholder="e.g. 7.2"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {action === "apply" && (
           <div>
             <label>Order to apply toward ({currency} only, due &gt; 0)</label>
@@ -564,7 +626,7 @@ function VendorBalanceContent() {
             onChange={(e) => { setAmount(e.target.value); setConvertedAmtOverride(null); }}
             placeholder={action === "apply" && selectedApplyOrderDue != null ? `Max ${selectedApplyOrderDue.toFixed(2)}` : "0.00"}
             required
-            disabled={!vendor || (action === "apply" ? !orderId : totalHeld <= 0)}
+            disabled={!vendor || (action === "apply" ? !orderId : action !== "Expense" && !toContactId)}
           />
           {convertingSpend && (
             <div style={{ marginTop: 6 }}>
@@ -572,11 +634,10 @@ function VendorBalanceContent() {
               <input
                 type="number" step="any"
                 value={displayConvertedAmt}
-                max={totalHeld}
                 onChange={(e) => handleConvertedAmtChange(e.target.value)}
                 placeholder={totalHeld > 0 ? `Max ${totalHeld.toFixed(2)}` : "0.00"}
                 style={{ maxWidth: 220 }}
-                disabled={!vendor || totalHeld <= 0}
+                disabled={!vendor}
               />
             </div>
           )}
@@ -670,6 +731,13 @@ function VendorBalanceContent() {
           </p>
         )}
 
+        {convertingReceiver && toAmount != null && (
+          <p className="muted" style={{ fontSize: 13 }}>
+            {recipients.find((c) => c.id === toContactId)?.name || "The receiving vendor"} is credited{" "}
+            {receiveCurrency} {toAmount.toFixed(2)} (at {currency}→{receiveCurrency} {receiveRateNum}), not {currency}.
+          </p>
+        )}
+
         {action !== "apply" && (
           <>
             <ProofUpload label={action === "Expense" ? "Receipt (PDF or image, optional)" : "Proof of transaction (PDF or image, optional)"} url={proofUrl} onChange={setProofUrl} />
@@ -682,7 +750,7 @@ function VendorBalanceContent() {
 
         {error && <p className="error-text">{error}</p>}
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <button type="submit" disabled={saving || !vendor || (action === "apply" ? !orderId : totalHeld <= 0)}>
+          <button type="submit" disabled={saving || !vendor || (action === "apply" ? !orderId : action !== "Expense" && !toContactId)}>
             {saving ? "Saving..." : editId ? "Save correction" : "Save"}
           </button>
           {editId && (

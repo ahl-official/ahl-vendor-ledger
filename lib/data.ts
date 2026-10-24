@@ -112,6 +112,8 @@ const parseTransfers = (rows: Row[]): Transfer[] =>
     createdAt: r.createdAt,
     rate: numOrNull(r.rate ?? ""),
     rateCurrency: r.rateCurrency ?? "",
+    toCurrency: r.toCurrency ?? "",
+    toAmount: numOrNull(r.toAmount ?? ""),
   }));
 
 const parseFxConversions = (rows: Row[]): FxConversion[] =>

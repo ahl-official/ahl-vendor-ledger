@@ -50,6 +50,11 @@ export const SHEETS = {
     // real balance (see app/vendor-balance/page.tsx) -- lets a vendor's Ledger page convert
     // this specific entry if displayCurrency is on. Appended at the end, same reason as above.
     "rate", "rateCurrency",
+    // Set only for a vendor-to-vendor Transfer credited to the receiver in a different
+    // currency than the sender spent (e.g. sender spends USD, receiver -- normally paid in
+    // RMB -- is credited RMB). When unset, the receiver is credited the same amount/currency
+    // the sender spent, as before. Appended at the end, same reason as rate/rateCurrency.
+    "toCurrency", "toAmount",
   ],
   // Explicitly links an agent's INR funding (a CompanyToAgent movement) to the RMB (or
   // other-currency) payout it paid for (an AgentToVendor/AgentToCompany movement). Never
@@ -142,6 +147,7 @@ export interface Transfer {
   reversed: boolean; reversedReason: string; createdAt: string;
   date?: string; legacyId?: string;
   rate?: number | null; rateCurrency?: string;
+  toCurrency?: string; toAmount?: number | null;
 }
 
 export interface FxConversion {

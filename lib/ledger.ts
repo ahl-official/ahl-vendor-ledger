@@ -80,10 +80,12 @@ export function orderPaid(orderId: string, applications: Application[], transfer
   const fromApps = applications
     .filter((a) => a.orderId === orderId && a.active)
     .reduce((s, a) => s + a.amount, 0);
-  // A vendor-to-vendor transfer can also fund the RECEIVING vendor's order.
+  // A vendor-to-vendor transfer can also fund the RECEIVING vendor's order. toAmount is
+  // only ever set when NOT paying into an order directly (see app/api/transfers/route.ts),
+  // so this is defensive, not the normal case -- t.amount is what actually applies here.
   const fromTransfers = transfers
     .filter((t) => t.receivingOrderId === orderId && !t.reversed)
-    .reduce((s, t) => s + t.amount, 0);
+    .reduce((s, t) => s + (t.toAmount ?? t.amount), 0);
   return fromApps + fromTransfers;
 }
 
@@ -200,6 +202,13 @@ export function vendorHeld(vendorId: string, currency: string, d: LedgerData): n
   const transfersIn = d.transfers
     .filter((t) => t.purpose === "Transfer" && t.toContactId === vendorId && !t.reversed && !t.receivingOrderId)
     .map((t) => {
+      // toCurrency/toAmount is the REAL amount credited to the receiver when it was recorded
+      // in a different currency than what the sender spent (see app/api/transfers/route.ts)
+      // -- authoritative, takes priority over the display-only rate/rateCurrency conversion
+      // below (which only ever reflects what the SENDER typed, not a real receiving amount).
+      if (t.toCurrency && t.toAmount != null) {
+        return { currency: t.toCurrency, amount: t.toAmount };
+      }
       if (target && t.currency !== target && t.rate && t.rate > 0 && t.rateCurrency === target) {
         return { currency: target, amount: Math.round(convertByRate(t.amount, t.rate, t.currency, target) * 100) / 100 };
       }
