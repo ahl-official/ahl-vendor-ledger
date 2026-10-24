@@ -73,8 +73,24 @@ export function vendorAccount(vendorId: string, d: LedgerData) {
   const name = (id: string) => contactName(id, d.contacts);
   const orders = d.orders.filter(o => o.vendorId === vendorId).map(o => ({ ...o, ...orderSummary(o, d) }));
   const events: StatementEvent[] = [];
+  const consumedApplicationIds = new Set<string>();
   for (const m of d.movements.filter(m => m.payeeId === vendorId && (m.type === "AgentToVendor" || m.type === "CompanyToVendor" || m.type === "LegacyCompanyToVendor" || m.type === "OpeningBalance"))) {
-    events.push({ id: m.id, kind: "movement", date: m.date, createdAt: m.createdAt, label: m.type === "OpeningBalance" ? "Opening balance carried forward" : `Received from ${name(m.payerId)}`, currency: m.currency, credited: m.amount, debited: 0, balance: 0, reversed: m.reversed, note: m.note, proofUrl: m.proofUrl, legacy: !!m.legacyId });
+    // "Record Money Movement" can apply part (or all) of a receipt to an order in the very
+    // same action (see app/api/movements/route.ts) -- always the same exact createdAt as
+    // this movement, never a later, separate "Apply to Order" click (which would have its
+    // own, different createdAt). Shown as two lines -- a credit, then a debit that
+    // immediately cancels some or all of it -- they read as if money arrived and then
+    // mysteriously left again; fold the matching application(s) back into this one line
+    // instead. The net balance effect is identical (received minus applied = what's
+    // actually still held) -- this only changes how many rows one real event takes.
+    const paidNow = !m.reversed ? d.applications.filter(a => a.active && a.movementId === m.id && a.createdAt === m.createdAt) : [];
+    paidNow.forEach(a => consumedApplicationIds.add(a.id));
+    const appliedTotal = Math.round(paidNow.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+    const orderRefs = paidNow.map(a => orders.find(o => o.id === a.orderId)?.invoiceRef || a.orderId);
+    const label = m.type === "OpeningBalance"
+      ? "Opening balance carried forward"
+      : `Received from ${name(m.payerId)}${orderRefs.length ? ` · paid ${orderRefs.join(", ")}` : ""}`;
+    events.push({ id: m.id, kind: "movement", date: m.date, createdAt: m.createdAt, label, currency: m.currency, credited: m.amount, debited: appliedTotal, balance: 0, reversed: m.reversed, note: m.note, proofUrl: m.proofUrl, legacy: !!m.legacyId });
   }
   const transferEvents: StatementEvent[] = [];
   for (const t of d.transfers.filter(t => t.fromVendorId === vendorId || (t.purpose === "Transfer" && t.toContactId === vendorId))) {
@@ -91,6 +107,7 @@ export function vendorAccount(vendorId: string, d: LedgerData) {
   events.push(...mergeSplitEvents(transferEvents));
   const applicationEvents: StatementEvent[] = [];
   for (const a of d.applications) {
+    if (consumedApplicationIds.has(a.id)) continue; // already folded into its source movement's own row above
     // Include voided receipt history as well as applications of incoming transfers/credits.
     // Legacy rows trace back to a specific movementId; current ones (see
     // app/api/applications/route.ts) carry vendorId/currency directly instead -- either way
